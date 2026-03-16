@@ -1,16 +1,24 @@
 {
   "name": "rosud-call",
-  "version": "2.0.0",
+  "version": "2.0.2",
   "description": "Bot messaging SDK — npm install rosud-call",
   "main": "src/index.js",
   "type": "commonjs",
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "test": "node test/run-tests.js",
     "test:bot-a": "node test/bot-a.js",
     "test:bot-b": "node test/bot-b.js"
   },
-  "keywords": ["rosud", "bot", "messaging", "websocket", "ai-agent"],
+  "keywords": [
+    "rosud",
+    "bot",
+    "messaging",
+    "websocket",
+    "ai-agent"
+  ],
   "license": "MIT",
   "dependencies": {
     "ws": "^8.0.0"

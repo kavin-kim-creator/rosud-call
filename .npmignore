@@ -1,0 +1,15 @@
+# 내부 개발 문서 (민감정보 포함 가능성)
+CLAUDE_PROMPT.md
+TASK.md
+DESIGN.md
+
+# 테스트 (서버 연결 필요)
+test/
+
+# 개발 로그
+*.log
+/tmp/
+
+# git
+.git/
+.gitignore

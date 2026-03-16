@@ -35,6 +35,7 @@ class RosudCall extends EventEmitter {
    * @param {number}   [options.dedupTtlMs=60000]
    * @param {boolean}  [options.sanitize=true]
    * @param {string[]} [options.skipSenders=[]]
+   * @param {boolean}  [options.filterSelf=true]  false이면 자기 메시지도 emit
    */
   constructor(options = {}) {
     super()
@@ -46,6 +47,7 @@ class RosudCall extends EventEmitter {
       dedupTtlMs  = 60_000,
       sanitize: doSanitize = true,
       skipSenders = [],
+      filterSelf  = true,
     } = options
 
     if (!apiKey) throw new Error('rosud-call: apiKey 필수')
@@ -57,6 +59,7 @@ class RosudCall extends EventEmitter {
     this.dedupTtlMs  = dedupTtlMs
     this._doSanitize = doSanitize
     this.skipSenders = new Set(skipSenders)
+    this.filterSelf  = filterSelf
 
     this._dedupFile  = '/tmp/rosud-call-dedup.json'
     this._pollingTimer = null
@@ -70,6 +73,7 @@ class RosudCall extends EventEmitter {
       wsUrl,
       botId,
       skipSenders : this.skipSenders,
+      filterSelf  : this.filterSelf,
       onMessage   : (msg) => this.emit('message', msg),
       toMsg       : (m)   => this._toMsg(m),
     })
@@ -85,6 +89,7 @@ class RosudCall extends EventEmitter {
       client      : this._api,
       botId,
       skipSenders : this.skipSenders,
+      filterSelf  : this.filterSelf,
       onMessage   : (msg) => this.emit('message', msg),
       toMsg       : (m)   => this._toMsg(m),
     })

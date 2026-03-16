@@ -23,13 +23,15 @@ class Poller {
    * @param {import('./client').ApiClient} options.client
    * @param {string}   options.botId
    * @param {Set<string>} options.skipSenders
+   * @param {boolean}  [options.filterSelf=true]  true면 botId 발신 메시지 필터
    * @param {Function} options.onMessage  (msg) => void
    * @param {Function} [options.toMsg]    내부 메시지 변환 함수
    */
-  constructor({ client, botId, skipSenders, onMessage, toMsg }) {
+  constructor({ client, botId, skipSenders, filterSelf = true, onMessage, toMsg }) {
     this.client      = client
     this.botId       = botId
     this.skipSenders = skipSenders
+    this.filterSelf  = filterSelf
     this.onMessage   = onMessage
     this.toMsg       = toMsg || ((m) => m)
   }
@@ -74,7 +76,7 @@ class Poller {
     this._saveState(stateFile, roomId, newMsgs[newMsgs.length - 1].id)
 
     for (const m of newMsgs) {
-      if (m.sender_id === this.botId)         continue
+      if (this.filterSelf && m.sender_id === this.botId) continue
       if (this.skipSenders.has(m.sender_id))  continue
       this.onMessage(this.toMsg(m))
     }

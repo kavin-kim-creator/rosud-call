@@ -54,6 +54,9 @@ rc.on('error',        (err) => console.error('[봇B] 에러:', err.message))
 rc.on('message', async (msg) => {
   console.log(`[봇B] 수신: ${msg.senderId} → ${msg.content.slice(0, 60)}`)
 
+  // [B] prefix = 자기 에코이거나 다른 봇B 메시지 → 무시
+  if (msg.content.startsWith('[B]')) return
+
   if (msg.content.startsWith('[A]')) {
     const reply = `[B][에코] ${msg.content}`
     await rc.send(ROOM_ID, reply)

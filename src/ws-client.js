@@ -28,15 +28,17 @@ class WsClient extends EventEmitter {
    * @param {string}   options.wsUrl
    * @param {string}   options.botId
    * @param {Set<string>} options.skipSenders
+   * @param {boolean}  [options.filterSelf=true]  true면 botId 발신 메시지 필터
    * @param {Function} options.onMessage    (rawMsg) => void
    * @param {Function} options.toMsg        (m) => msg
    */
-  constructor({ apiKey, wsUrl, botId, skipSenders, onMessage, toMsg }) {
+  constructor({ apiKey, wsUrl, botId, skipSenders, filterSelf = true, onMessage, toMsg }) {
     super()
     this.apiKey      = apiKey
     this.wsUrl       = wsUrl
     this.botId       = botId
     this.skipSenders = skipSenders
+    this.filterSelf  = filterSelf
     this.onMessage   = onMessage
     this.toMsg       = toMsg || ((m) => m)
 
@@ -45,13 +47,19 @@ class WsClient extends EventEmitter {
     this._stopped    = false
     this._retryDelay = MIN_RETRY_SEC
     this._pingTimer  = null
+    this._connectResolve = null
+    this._connectReject  = null
   }
 
   /** WS 연결 + subscribe */
   async connect(roomId) {
     this._room    = roomId
     this._stopped = false
-    await this._wsConnect()
+    return new Promise((resolve, reject) => {
+      this._connectResolve = resolve
+      this._connectReject  = reject
+      this._wsConnect().catch(reject)
+    })
   }
 
   /** WS 종료 */
@@ -110,13 +118,32 @@ class WsClient extends EventEmitter {
 
       if (msg.type === 'subscribed') {
         this._retryDelay = MIN_RETRY_SEC
+        if (this._connectResolve) {
+          this._connectResolve()
+          this._connectResolve = null
+          this._connectReject  = null
+        }
         this.emit('connected')
+        return
+      }
+
+      // [보안] subscribe error 처리 — connect() Promise reject
+      if (msg.type === 'error') {
+        const code = msg.code || 'UNKNOWN'
+        const err  = new Error(`WS error [${code}]: ${msg.message || ''}`)
+        err.code   = code
+        if (this._connectReject && (code === 'NOT_IN_ROOM' || code === 'RATE_LIMIT' || code === 'VALIDATION_ERROR')) {
+          this._connectReject(err)
+          this._connectResolve = null
+          this._connectReject  = null
+        }
+        this.emit('error', err)
         return
       }
 
       if (msg.type === 'message_new') {
         const m = msg.message
-        if (m.sender_id === this.botId)         return
+        if (this.filterSelf && m.sender_id === this.botId) return
         if (this.skipSenders.has(m.sender_id))  return
         this.onMessage(this.toMsg(m))
       }

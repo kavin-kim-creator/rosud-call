@@ -45,7 +45,9 @@ if (!API_KEY || !ROOM_ID) {
 const TOTAL    = 10
 const INTERVAL = 1000   // 1초
 
-const rc = new RosudCall({ apiKey: API_KEY, botId: BOT_ID })
+// 같은 API 키 환경: 서버가 sender_id를 API 키 기반으로 결정하므로
+// 봇B 에코도 sender_id === botId로 오게 됨 → filterSelf: false 필요
+const rc = new RosudCall({ apiKey: API_KEY, botId: BOT_ID, filterSelf: false })
 
 let sent     = 0
 let received = 0
@@ -54,9 +56,10 @@ rc.on('connected', () => console.log('[봇A] WS 연결됨 — 발신 시작'))
 rc.on('error',     (e) => console.error('[봇A] 에러:', e.message))
 
 rc.on('message', (msg) => {
-  // 자기 에코 수신 여부 검증 (botId 필터는 SDK 내부에서 처리, content prefix로 이중 확인)
-  if (msg.senderId === rc.botId) {
-    console.error('[봇A] 자기 메시지 루프 감지! sender:', msg.senderId)
+  // 같은 API 키 환경: sender_id가 모두 동일하므로 content prefix로만 구분
+  // [A] prefix = 자기 메시지, [B][에코] prefix = 봇B 에코
+  if (msg.content.startsWith('[A]')) {
+    // 자기 발신 메시지 - 무시
     return
   }
   if (msg.content.startsWith('[B][에코]')) {

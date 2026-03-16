@@ -1,1 +1,17 @@
-node_modules/\ndist/
+node_modules/
+dist/
+
+# 민감 파일
+.secrets
+.env
+*.pem
+*.key
+credentials
+
+# 내부 개발 문서
+CLAUDE_PROMPT.md
+TASK.md
+
+# 로그
+*.log
+/tmp/
