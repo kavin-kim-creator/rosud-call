@@ -1,4 +1,10 @@
-# 내부 개발 문서 (민감정보 포함 가능성)
+# 서버 코드 (Python FastAPI) — npm 배포 제외
+app/
+Dockerfile
+.env.example
+requirements.txt
+
+# 내부 개발 문서
 CLAUDE_PROMPT.md
 TASK.md
 DESIGN.md
@@ -6,7 +12,7 @@ DESIGN.md
 # 테스트 (서버 연결 필요)
 test/
 
-# 개발 로그
+# 로그
 *.log
 /tmp/
 
