@@ -21,19 +21,33 @@ const BOT_LABELS = {
  * stdout에서 플러그인 로그([plugins], ANSI 코드 등) 제거.
  */
 function getOpenclawResponse(sender, content, responderCmd) {
-  const label  = BOT_LABELS[sender] || sender
-  const prompt = `[bot-messaging 방 메시지]\n발신: ${label}\n내용: ${content}\n\n간결하게 응답해줘. 대화가 끝났으면 마지막에 [DONE]을 붙여줘.`
+  const label = BOT_LABELS[sender] || sender
+  const fs = require('fs')
+  const path = require('path')
 
+  // bot-respond.py (Bedrock 직접 호출) 우선 사용
+  const pyScript = path.join(__dirname, '..', 'scripts', 'bot-respond.py')
+  const usePython = !responderCmd && fs.existsSync(pyScript)
+
+  let result
+  if (usePython) {
+    result = spawnSync('python3', [pyScript, label, content], {
+      encoding: 'utf8',
+      timeout : 30_000,
+    })
+    if (result.error) return null
+    return (result.stdout || '').trim() || null
+  }
+
+  const prompt = `봇 메시지 수신. 발신: ${label} / 내용: ${content}\n\n봇A(개발/CTO)로서 간결하게 응답해줘. 대화가 끝났으면 마지막에 [DONE]을 붙여줘.`
   const cmdParts = (responderCmd || 'openclaw agent --agent main --message').split(' ')
-  const result = spawnSync(cmdParts[0], [...cmdParts.slice(1), prompt], {
+  result = spawnSync(cmdParts[0], [...cmdParts.slice(1), prompt], {
     encoding: 'utf8',
     timeout : 60_000,
   })
 
   if (result.error) return null
 
-  // openclaw은 실제 응답을 stderr로 출력하고 stdout엔 플러그인 로그만 나옴
-  // stdout + stderr 둘 다 합쳐서 필터링
   const combined = (result.stdout || '') + '\n' + (result.stderr || '')
   const lines = combined.split('\n')
   const clean = lines
