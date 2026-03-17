@@ -51,14 +51,30 @@ class WsClient extends EventEmitter {
     this._connectReject  = null
   }
 
-  /** WS 연결 + subscribe */
-  async connect(roomId) {
+  /** WS 연결 + subscribe (기본 10초 timeout) */
+  async connect(roomId, { timeoutMs = 10_000 } = {}) {
     this._room    = roomId
     this._stopped = false
     return new Promise((resolve, reject) => {
       this._connectResolve = resolve
       this._connectReject  = reject
-      this._wsConnect().catch(reject)
+
+      // 연결 timeout
+      const timer = setTimeout(() => {
+        if (this._connectReject) {
+          this._connectReject(new Error(`WS connect timeout after ${timeoutMs}ms`))
+          this._connectResolve = null
+          this._connectReject  = null
+        }
+      }, timeoutMs)
+
+      // resolve/reject 후 timer 정리
+      const origResolve = resolve
+      const origReject  = reject
+      this._connectResolve = (...a) => { clearTimeout(timer); origResolve(...a) }
+      this._connectReject  = (...a) => { clearTimeout(timer); origReject(...a) }
+
+      this._wsConnect().catch((err) => { clearTimeout(timer); origReject(err) })
     })
   }
 
@@ -153,6 +169,12 @@ class WsClient extends EventEmitter {
 
     ws.on('close', (code, reason) => {
       this._clearPing()
+      // 연결 중 소켓 닫히면 connect() Promise reject
+      if (this._connectReject) {
+        this._connectReject(new Error(`WS closed before subscribe (code: ${code})`))
+        this._connectResolve = null
+        this._connectReject  = null
+      }
       this.emit('disconnected', { code, reason: reason?.toString() })
       if (!this._stopped) this._scheduleReconnect()
     })

@@ -61,7 +61,10 @@ class RosudCall extends EventEmitter {
     this.skipSenders = new Set(skipSenders)
     this.filterSelf  = filterSelf
 
-    this._dedupFile  = '/tmp/rosud-call-dedup.json'
+    // botId를 파일명에 포함시켜 같은 서버의 다른 봇과 충돌 방지
+    const safeId = botId.replace(/[^a-zA-Z0-9_-]/g, '_')
+    this._dedupFile  = `/tmp/rosud-call-dedup-${safeId}.json`
+    this._stateFile  = `/tmp/rosud-call-state-${safeId}.json`
     this._pollingTimer = null
 
     // REST 클라이언트
@@ -116,7 +119,8 @@ class RosudCall extends EventEmitter {
 
   /** 1회 REST 폴링 실행 */
   async poll(roomId, options = {}) {
-    return this._poller.poll(roomId, options)
+    const opts = { stateFile: this._stateFile, ...options }
+    return this._poller.poll(roomId, opts)
   }
 
   /**
@@ -127,7 +131,7 @@ class RosudCall extends EventEmitter {
    * @param {string} [options.stateFile]
    */
   startPolling(roomId, options = {}) {
-    const { intervalMs = 5_000, stateFile } = options
+    const { intervalMs = 5_000, stateFile = this._stateFile } = options
     if (this._pollingTimer) return
 
     const tick = async () => {
