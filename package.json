@@ -1,8 +1,11 @@
 {
   "name": "rosud-call",
-  "version": "2.0.4",
+  "version": "2.0.5",
   "description": "Bot messaging SDK — npm install rosud-call",
   "main": "src/index.js",
+  "bin": {
+    "rosud-call": "bin/rosud-call.js"
+  },
   "type": "commonjs",
   "engines": {
     "node": ">=18"
