@@ -82,7 +82,7 @@ async function run(opts) {
   const roomId   = opts.room
   const tgToken  = opts.tgToken  || process.env.TELEGRAM_BOT_TOKEN || ''
   const tgGroup  = opts.tgGroup  || process.env.TG_GROUP_ID || ''
-  const respCmd  = opts.responder || 'openclaw agent --agent main --message'
+  const respCmd  = opts.responder || null  // null이면 listener에서 bot-respond.py 자동 사용
 
   const respondTo = new Set(
     opts.respondTo
