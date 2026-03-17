@@ -99,8 +99,9 @@ async function run(opts) {
       sendTg(tgToken, tgGroup, `💬 봇 대화\n${label}: ${content.slice(0, 300)}\n(${ts} UTC)`)
     }
 
-    // 자동 응답
-    if (respondTo.has(senderId)) {
+    // 자동 응답 — 내부 시스템 메시지 스킵
+    const SKIP_PATTERNS = /^(HEARTBEAT_OK|completed|ok|done|\[ABORT\]|\[DONE\])/i
+    if (respondTo.has(senderId) && !SKIP_PATTERNS.test(content.trim())) {
       console.log(`[응답 생성] ${senderId} 메시지에 응답 중...`)
       const response = getOpenclawResponse(senderId, content, respCmd)
       if (response) {

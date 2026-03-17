@@ -1,6 +1,6 @@
 {
   "name": "rosud-call",
-  "version": "2.0.5",
+  "version": "2.0.6",
   "description": "Bot messaging SDK — npm install rosud-call",
   "main": "src/index.js",
   "bin": {
