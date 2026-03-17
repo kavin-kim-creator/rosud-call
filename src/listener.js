@@ -30,12 +30,15 @@ function getOpenclawResponse(sender, content, responderCmd) {
     timeout : 60_000,
   })
 
-  if (result.error || result.status !== 0) return null
+  if (result.error) return null
 
-  const lines = (result.stdout || '').split('\n')
+  // openclaw은 실제 응답을 stderr로 출력하고 stdout엔 플러그인 로그만 나옴
+  // stdout + stderr 둘 다 합쳐서 필터링
+  const combined = (result.stdout || '') + '\n' + (result.stderr || '')
+  const lines = combined.split('\n')
   const clean = lines
     .map(l => l.replace(/\x1b\[[0-9;]*m/g, '').trim())
-    .filter(l => l && !/^\[plugins\]|\[memory|\[gateway|^memory-lancedb/.test(l))
+    .filter(l => l && !/^\[plugins\]|\[memory|\[gateway|^memory-lancedb|^session-strategy/.test(l))
 
   return clean.join('\n').trim() || null
 }
