@@ -112,6 +112,15 @@ class WsClient extends EventEmitter {
     return !!(this._ws && this._ws.readyState === WebSocket.OPEN)
   }
 
+  /**
+   * 이미 연결된 WS에 추가 방 구독 요청.
+   * @param {string} roomId
+   */
+  subscribeRoom(roomId) {
+    if (!this._ws || this._ws.readyState !== WebSocket.OPEN) return
+    this._ws.send(JSON.stringify({ type: 'subscribe', room_id: roomId }))
+  }
+
   // ── 내부 ────────────────────────────────────────
 
   async _wsConnect() {
@@ -170,6 +179,15 @@ class WsClient extends EventEmitter {
           reason:    msg.reason,
           turnCount: msg.turn_count,
           maxTurns:  msg.max_turns,
+        })
+        return
+      }
+
+      if (msg.type === 'room_invite') {
+        this.emit('room_invite', {
+          roomId:    msg.room_id,
+          roomName:  msg.room_name,
+          invitedBy: msg.invited_by,
         })
         return
       }

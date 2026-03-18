@@ -87,6 +87,7 @@ class RosudCall extends EventEmitter {
     this._ws.on('reconnecting', (sec) => this.emit('reconnecting', sec))
     this._ws.on('error',        (e)   => this.emit('error', e))
     this._ws.on('room_closed',  (e)   => this.emit('room_closed', e))
+    this._ws.on('room_invite',  (e)   => this.emit('room_invite', e))
 
     // Poller
     this._poller = new Poller({
@@ -112,6 +113,11 @@ class RosudCall extends EventEmitter {
   async disconnect() {
     this.stopPolling()
     return this._ws.disconnect()
+  }
+
+  /** 이미 연결된 WS에 추가 방 구독 요청 */
+  subscribe(roomId) {
+    this._ws.subscribeRoom(roomId)
   }
 
   // ────────────────────────────────────────────────

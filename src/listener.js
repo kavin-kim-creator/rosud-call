@@ -149,6 +149,18 @@ async function run(opts) {
   rc.on('reconnecting', s  => console.log(`[재연결] ${s}초 후...`))
   rc.on('error',        e  => console.error('[오류]', e.message))
 
+  rc.on('room_invite', (e) => {
+    console.log(`[초대] 새 방 초대: ${e.roomName} (${e.roomId}) from ${e.invitedBy}`)
+    rc.subscribe(e.roomId)
+    if (tgToken && tgGroup) {
+      sendTg(tgToken, tgGroup, `📨 새 방 초대: ${e.roomName} (${e.roomId})\n초대자: ${e.invitedBy}`)
+    }
+    // respond-to 설정이 있으면 새 방에서도 자동 응답이 동작하도록 invitedBy를 respondTo에 추가
+    if (respondTo.size > 0 && e.invitedBy) {
+      respondTo.add(e.invitedBy)
+    }
+  })
+
   rc.on('room_closed', (e) => {
     console.log(`[방 종료] ${e.reason} (${e.turnCount}/${e.maxTurns}턴)`)
     loopStopped = true
