@@ -12,10 +12,19 @@ const https = require('https')
 
 /**
  * openclaw CLI로 응답 생성.
- * Python bot-respond.py 의존성 없음 — openclaw CLI만 사용.
+ * @param {string} sender
+ * @param {string} content
+ * @param {string|null} responderCmd
+ * @param {string|null} goal  방 goal (있으면 프롬프트에 주입)
  */
-function getOpenclawResponse(sender, content, responderCmd) {
-  const prompt = `봇 메시지 수신. 발신: ${sender} / 내용: ${content}\n\n간결하게 응답해줘. 대화가 끝났으면 마지막에 [DONE]을 붙여줘.`
+function getOpenclawResponse(sender, content, responderCmd, goal) {
+  let prompt = `봇 메시지 수신. 발신: ${sender} / 내용: ${content}\n\n간결하게 응답해줘.`
+  if (goal) {
+    prompt += `\n\n목표: ${goal}\n목표 달성 여부를 판단하고 달성됐으면 반드시 [DONE]을 붙여라.`
+  } else {
+    prompt += ` 대화가 끝났으면 마지막에 [DONE]을 붙여줘.`
+  }
+
   const cmdParts = (responderCmd || 'openclaw agent --agent main --message').split(' ')
   const result = spawnSync(cmdParts[0], [...cmdParts.slice(1), prompt], {
     encoding: 'utf8',
@@ -31,6 +40,43 @@ function getOpenclawResponse(sender, content, responderCmd) {
     .filter(l => l && !/^\[plugins\]|\[memory|\[gateway|^memory-lancedb|^session-strategy/.test(l))
 
   return clean.join('\n').trim() || null
+}
+
+/**
+ * Conversation Judge — 3턴마다 대화 계속 여부 판단.
+ * openclaw에게 yes/no 판단 요청.
+ * @param {Array<{sender: string, content: string}>} history  최근 대화 내역
+ * @param {string|null} goal
+ * @param {string|null} responderCmd
+ * @returns {Promise<boolean>}  true = 계속, false = 종료
+ */
+async function judgeConversation(history, goal, responderCmd) {
+  const historyStr = history
+    .map(m => `${m.sender}: ${m.content.slice(0, 200)}`)
+    .join('\n')
+
+  const prompt = goal
+    ? `아래 대화를 분석해서 "${goal}" 목표가 달성됐는지 판단해.\n달성됐으면 "no" (대화 불필요), 아직이면 "yes" (대화 계속 필요).\n반드시 yes 또는 no 한 단어만 답해라.\n\n대화:\n${historyStr}`
+    : `아래 대화를 분석해서 계속 진행이 필요한지 판단해.\n계속 필요하면 "yes", 대화가 끝났으면 "no".\n반드시 yes 또는 no 한 단어만 답해라.\n\n대화:\n${historyStr}`
+
+  const cmdParts = (responderCmd || 'openclaw agent --agent main --message').split(' ')
+  const result = spawnSync(cmdParts[0], [...cmdParts.slice(1), prompt], {
+    encoding: 'utf8',
+    timeout : 30_000,
+  })
+
+  if (result.error) return true  // 판단 실패 시 기본 계속 진행
+
+  const combined = (result.stdout || '') + '\n' + (result.stderr || '')
+  const lines = combined.split('\n')
+  const clean = lines
+    .map(l => l.replace(/\x1b\[[0-9;]*m/g, '').trim())
+    .filter(l => l && !/^\[plugins\]|\[memory|\[gateway|^memory-lancedb|^session-strategy/.test(l))
+    .join(' ')
+    .toLowerCase()
+
+  // "no"가 포함되면 종료 (목표 달성 or 대화 불필요)
+  return !(/\bno\b/.test(clean))
 }
 
 /** TG 메시지 전송 (선택 기능) */
@@ -71,6 +117,12 @@ async function run(opts) {
   let consecutiveCount = 0
   let loopStopped = false
 
+  // Judge: 3턴마다 대화 계속 여부 판단
+  let turnCount = 0
+  const JUDGE_EVERY = 3
+  const conversationHistory = []  // {sender, content}[]
+  const MAX_HISTORY = 10
+
   if (!apiKey) { console.error('BOT_MESSAGING_API_KEY 환경변수 필요'); process.exit(1) }
   if (!botId)  { console.error('BOT_MESSAGING_BOT_ID 환경변수 필요'); process.exit(1) }
   if (!roomId) { console.error('--room 옵션 필요'); process.exit(1) }
@@ -82,6 +134,16 @@ async function run(opts) {
   console.log(`  maxTurns  : ${MAX_CONSECUTIVE}`)
 
   const rc = new RosudCall({ apiKey, botId, filterSelf: true })
+
+  // 방 goal 조회 (없으면 null)
+  let roomGoal = null
+  try {
+    const roomInfo = await rc.getRoom(roomId)
+    roomGoal = roomInfo?.goal || roomInfo?.room?.goal || null
+    if (roomGoal) console.log(`  goal      : ${roomGoal}`)
+  } catch {
+    // goal 조회 실패는 무시
+  }
 
   rc.on('connected',    () => console.log('[연결] WS 연결 성공'))
   rc.on('reconnecting', s  => console.log(`[재연결] ${s}초 후...`))
@@ -101,6 +163,10 @@ async function run(opts) {
     const { senderId, content, createdAt } = msg
     const ts = (createdAt || '').slice(11, 16)
     console.log(`[수신] ${senderId}: ${content.slice(0, 80)}`)
+
+    // 대화 이력 추가
+    conversationHistory.push({ sender: senderId, content })
+    if (conversationHistory.length > MAX_HISTORY) conversationHistory.shift()
 
     // TG 미러링
     if (tgToken && tgGroup) {
@@ -131,16 +197,36 @@ async function run(opts) {
       }
 
       console.log(`[응답 생성] ${senderId} → (${consecutiveCount + 1}/${MAX_CONSECUTIVE})`)
-      const response = getOpenclawResponse(senderId, content, respCmd)
+      const response = getOpenclawResponse(senderId, content, respCmd, roomGoal)
       if (response) {
         consecutiveCount++
+        turnCount++
+        conversationHistory.push({ sender: botId, content: response })
+        if (conversationHistory.length > MAX_HISTORY) conversationHistory.shift()
+
         await rc.send(roomId, response)
         console.log(`[발신] ${response.slice(0, 80)}`)
+
         // 내가 보낸 응답에 [DONE] 포함 시 중단
         if (/\[DONE\]/i.test(response)) {
           loopStopped = true
           consecutiveCount = 0
           console.log('[완료] 응답에 [DONE] 포함 — 자동응답 중단')
+          return
+        }
+
+        // Conversation Judge: 3턴마다 대화 계속 여부 판단
+        if (turnCount % JUDGE_EVERY === 0) {
+          console.log(`[Judge] ${turnCount}턴 도달 — 대화 계속 여부 판단 중...`)
+          const shouldContinue = await judgeConversation(conversationHistory, roomGoal, respCmd)
+          if (!shouldContinue) {
+            loopStopped = true
+            consecutiveCount = 0
+            console.log('[Judge] 대화 종료 판단 — [DONE] 발송')
+            await rc.send(roomId, '[DONE] 대화 목표 달성. 종료합니다.')
+          } else {
+            console.log('[Judge] 대화 계속 판단')
+          }
         }
       } else {
         console.warn('[응답 실패] 이번 턴 스킵')

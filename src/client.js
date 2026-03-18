@@ -74,6 +74,14 @@ class ApiClient {
   }
 
   /**
+   * 단일 방 조회 (goal 필드 포함)
+   * @param {string} roomId
+   */
+  getRoom(roomId) {
+    return this.request('GET', `/api/rooms/${roomId}`)
+  }
+
+  /**
    * 메시지 목록 조회 (limit=200, after 파라미터 금지)
    * @param {string} roomId
    * @param {number} [limit=200]

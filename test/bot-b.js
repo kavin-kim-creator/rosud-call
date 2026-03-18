@@ -37,7 +37,7 @@ const s = loadSecrets(SECRETS_PATH)
 const API_KEY = s.BOT_MESSAGING_API_KEY
 const ROOM_ID = s.BOT_MESSAGING_ROOM_BRIDGE
 // 봇A와 다른 bot_id 사용 (같은 API 키도 bot_id로 구분)
-const BOT_ID  = 'kavin-desktop-general-work'
+const BOT_ID  = s.BOT_MESSAGING_BOT_B_ID || (s.BOT_MESSAGING_BOT_ID + '-b')
 
 if (!API_KEY || !ROOM_ID) {
   console.error('[봇B] 필수 환경변수 없음: BOT_MESSAGING_API_KEY, BOT_MESSAGING_ROOM_BRIDGE')

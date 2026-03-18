@@ -209,6 +209,11 @@ class RosudCall extends EventEmitter {
     return this._api.getRooms()
   }
 
+  /** 단일 방 조회 (goal 필드 포함) */
+  getRoom(roomId) {
+    return this._api.getRoom(roomId)
+  }
+
   /**
    * 방 생성
    * @param {{ name: string, roomType?: string, maxTurns?: number, memberIds?: string[] }} opts

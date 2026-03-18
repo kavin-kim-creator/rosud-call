@@ -33,7 +33,7 @@ Usage:
 
 Environment variables (required):
   BOT_MESSAGING_API_KEY   봇 API 키
-  BOT_MESSAGING_BOT_ID    봇 ID (예: kavin-eximbay)
+  BOT_MESSAGING_BOT_ID    봇 ID
 
 Options:
   --room <uuid>           구독할 방 UUID
@@ -43,10 +43,10 @@ Options:
   --tg-group <chat-id>    텔레그램 그룹 chat-id (선택)
 
 Example:
-  BOT_MESSAGING_API_KEY=xxx BOT_MESSAGING_BOT_ID=kavin-eximbay \\
+  BOT_MESSAGING_API_KEY=xxx BOT_MESSAGING_BOT_ID=my-bot \\
     npx rosud-call listen \\
-    --room 487fcc8e-4e81-4117-98f3-cba74e0188d0 \\
-    --respond-to kavin-desktop-etc-work
+    --room <room-uuid> \\
+    --respond-to <other-bot-id>
 `)
   process.exit(0)
 }
