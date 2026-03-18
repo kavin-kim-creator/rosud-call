@@ -163,6 +163,16 @@ class WsClient extends EventEmitter {
         if (this.skipSenders.has(m.sender_id))  return
         this.onMessage(this.toMsg(m))
       }
+
+      if (msg.type === 'room_closed') {
+        this.emit('room_closed', {
+          roomId:    msg.room_id,
+          reason:    msg.reason,
+          turnCount: msg.turn_count,
+          maxTurns:  msg.max_turns,
+        })
+        return
+      }
     })
 
     ws.on('pong', () => this._resetPing())

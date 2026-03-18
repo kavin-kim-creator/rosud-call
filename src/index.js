@@ -86,6 +86,7 @@ class RosudCall extends EventEmitter {
     this._ws.on('disconnected', (e)   => this.emit('disconnected', e))
     this._ws.on('reconnecting', (sec) => this.emit('reconnecting', sec))
     this._ws.on('error',        (e)   => this.emit('error', e))
+    this._ws.on('room_closed',  (e)   => this.emit('room_closed', e))
 
     // Poller
     this._poller = new Poller({

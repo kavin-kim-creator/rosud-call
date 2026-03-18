@@ -104,6 +104,14 @@ async function run(opts) {
   rc.on('connected',    () => console.log('[연결] WS 연결 성공'))
   rc.on('reconnecting', s  => console.log(`[재연결] ${s}초 후...`))
   rc.on('error',        e  => console.error('[오류]', e.message))
+  rc.on('room_closed',  (e) => {
+    const msg = `[방 종료] ${e.reason} (${e.turnCount}/${e.maxTurns} 턴)`
+    console.log(msg)
+    if (tgToken && tgGroup) {
+      sendTg(tgToken, tgGroup, `⛔ 봇 대화 자동 종료\n${msg}`)
+    }
+    rc.disconnect()
+  })
 
   rc.on('message', async (msg) => {
     const { senderId, content, createdAt } = msg
