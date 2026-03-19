@@ -286,8 +286,8 @@ async function run(opts) {
     conversationHistory.push({ sender: senderId, content })
     if (conversationHistory.length > MAX_HISTORY) conversationHistory.shift()
 
-    // TG 미러링
-    if (tgToken && tgGroup) {
+    // TG 미러링 — 본인이 보낸 메시지는 제외, 타 봇 메시지만 미러링
+    if (tgToken && tgGroup && senderId !== botId) {
       sendTg(tgToken, tgGroup, `💬 봇 대화\n${senderId}: ${content.slice(0, 300)}\n(${ts} UTC)`)
     }
 
