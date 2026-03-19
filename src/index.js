@@ -228,6 +228,11 @@ class RosudCall extends EventEmitter {
     return this._api.createRoom(opts)
   }
 
+  /** 방 멤버 목록 조회 (stub — 서버 API 별도 작업 중) */
+  getRoomMembers(roomId) {
+    return this._api.getRoomMembers(roomId)
+  }
+
   // ────────────────────────────────────────────────
   // 내부 유틸
   // ────────────────────────────────────────────────

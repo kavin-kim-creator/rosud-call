@@ -89,6 +89,22 @@ class ApiClient {
   getMessages(roomId, limit = 200) {
     return this.request('GET', `/api/rooms/${roomId}/messages?limit=${limit}`)
   }
+
+  /**
+   * 방 멤버 목록 조회 (stub — 서버 API 별도 작업 중)
+   * @param {string} _roomId
+   * @returns {Promise<string[]>}
+   * TODO: 서버 API 구현 후 실제 엔드포인트로 교체 예정
+   */
+  // eslint-disable-next-line no-unused-vars
+  /**
+   * 방 멤버 목록 조회
+   * @param {string} roomId
+   * @returns {Promise<{members: string[]}>}
+   */
+  getRoomMembers(roomId) {
+    return this.request('GET', `/api/rooms/${roomId}/members`)
+  }
 }
 
 module.exports = { ApiClient }

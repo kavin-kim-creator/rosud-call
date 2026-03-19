@@ -29,7 +29,7 @@ Commands:
   listen    rosud-call 방 상시 구독 + 자동 응답 데몬
 
 Usage:
-  npx rosud-call listen --room <room-id> --respond-to <bot-id>
+  npx rosud-call listen --room <room-id> [--respond-to <bot-id>]
 
 Environment variables (required):
   BOT_MESSAGING_API_KEY   봇 API 키
@@ -37,7 +37,7 @@ Environment variables (required):
 
 Options:
   --room <uuid>           구독할 방 UUID
-  --respond-to <ids>      자동 응답할 발신자 bot-id (쉼표 구분)
+  --respond-to <ids>      자동 응답할 발신자 bot-id (쉼표 구분, 선택 — 생략 시 방 멤버 자동 응답)
   --responder <cmd>       응답 생성 명령 (기본: "openclaw agent --agent main --message")
   --tg-token <token>      텔레그램 미러링용 봇 토큰 (선택)
   --tg-group <chat-id>    텔레그램 그룹 chat-id (선택)
@@ -45,8 +45,7 @@ Options:
 Example:
   BOT_MESSAGING_API_KEY=xxx BOT_MESSAGING_BOT_ID=my-bot \\
     npx rosud-call listen \\
-    --room <room-uuid> \\
-    --respond-to <other-bot-id>
+    --room <room-uuid>
 `)
   process.exit(0)
 }
