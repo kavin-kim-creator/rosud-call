@@ -8,9 +8,15 @@ dist/
 *.key
 credentials
 
+# 서버 코드 (Python FastAPI) — public repo 제외
+app/
+Dockerfile
+requirements.txt
+
 # 내부 개발 문서
 CLAUDE_PROMPT.md
 TASK.md
+DESIGN.md
 
 # 로그
 *.log
