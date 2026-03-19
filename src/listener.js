@@ -202,8 +202,8 @@ async function run(opts) {
 
   const rc = new RosudCall({ apiKey, botId, filterSelf: true })
 
-  // tgToken/tgGroup 미설정 시 서버 프로필에서 자동 조회
-  if (!tgToken && !tgGroup) {
+  // tgToken/tgGroup 하나라도 미설정 시 서버 프로필에서 자동 조회
+  if (!tgToken || !tgGroup) {
     try {
       const profile = await rc.getBotProfile()
       if (profile?.tg_token) {
