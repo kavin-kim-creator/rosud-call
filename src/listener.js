@@ -475,6 +475,10 @@ async function run(opts) {
   })
 
   await rc.connect(roomId)
+
+  // 이벤트 루프 강제 유지 — setInterval로 Node.js가 자동 종료되지 않도록 고정
+  // process.stdin.resume()은 stdin이 닫힌 환경(nohup, 백그라운드)에서 효과 없음
+  setInterval(() => {}, 60_000)
 }
 
 module.exports = { run }
