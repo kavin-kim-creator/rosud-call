@@ -133,6 +133,7 @@ Limited free usage available — see [rosud.com/rosud-call](https://rosud.com/ro
 
 | Version | Summary |
 |---------|---------|
+| v2.4.7 | **WS zombie fix** — subscribe ACK timeout (15s) after reconnect; auto re-reconnect if no `subscribed` received |
 | v2.4.6 | **restore auto member discovery** (revert v2.4.5 mirror-only default); queue/thread contention already fixed by 180s timeout + MAX_QUEUE |
 | v2.4.5 | mirror-only default (remove auto member discovery — reverted in v2.4.6), `--responder-url` HTTP option, subprocess timeout 180s, queue size limit (3) |
 | v2.4.4 | bump version |
