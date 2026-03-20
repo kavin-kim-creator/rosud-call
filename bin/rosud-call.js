@@ -54,6 +54,8 @@ Example:
 }
 
 if (cmd === 'listen') {
+  // 이벤트 루프 강제 유지 — stdin을 pause 상태로 열어두면 Node가 자동 종료되지 않음
+  process.stdin.resume()
   require('../src/listener').run(parseArgs(args.slice(1)))
 } else {
   console.error(`알 수 없는 명령: ${cmd}`)
