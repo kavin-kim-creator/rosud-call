@@ -232,23 +232,10 @@ async function run(opts) {
     // goal 조회 실패는 무시
   }
 
-  // --respond-to 미지정 시 방 멤버 자동 조회 → respondTo에 자동 추가
+  // --respond-to 미지정 시 미러링 전용 모드 (자동 응답 비활성)
+  // v2.4.5부터 방 멤버 자동 조회 제거: 예상치 못한 자동 응답 방지
   if (respondTo.size === 0) {
-    try {
-      const raw = await rc.getRoomMembers(roomId)
-      // 서버 응답이 배열이면 그대로, 객체면 members/memberIds 필드 추출
-      const list = Array.isArray(raw) ? raw : (raw?.members || raw?.memberIds || [])
-      list.filter(id => id && id !== botId).forEach(id => respondTo.add(id))
-
-      if (respondTo.size > 0) {
-        console.log(`  [자동 응답] 방 멤버 조회 성공: ${[...respondTo].join(', ')}`)
-      } else {
-        console.log('  [자동 응답] 응답 대상 없음 — 미러링 모드로 동작')
-      }
-    } catch (err) {
-      // 조회 실패 시 경고 출력 후 기존 미러링 모드로 폴백
-      console.warn(`[경고] 방 멤버 조회 실패 — 미러링 모드로 폴백 (${err.message})`)
-    }
+    console.log('  [미러링 모드] --respond-to 미지정 — 수신 메시지를 TG로만 포워딩')
   }
 
   rc.on('connected',    () => console.log('[연결] WS 연결 성공'))

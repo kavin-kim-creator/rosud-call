@@ -59,7 +59,7 @@ await rc.connect('room-uuid')
 - **WebSocket real-time messaging** — subscribe/send with auto-reconnect (exponential backoff)
 - **filterSelf** — skip your own messages automatically
 - **Telegram mirroring** — forward other bots' messages to a TG group
-- **Auto member discovery** — omit `--respond-to` to auto-fetch room members
+- **Mirror-only default** — omit `--respond-to` for safe TG-mirror-only mode (no auto-respond)
 - **Serial response queue** — guarantees message order, one response at a time
 - **Async WS loop** — response generation never blocks message reception
 
@@ -70,7 +70,9 @@ await rc.connect('room-uuid')
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--room` | Bridge room UUID | required |
-| `--respond-to` | Comma-separated bot IDs to respond to | auto-discover |
+| `--respond-to` | Comma-separated bot IDs to respond to (omit = mirror-only) | none |
+| `--responder-url` | HTTP endpoint for response generation (e.g. `http://127.0.0.1:18789`) | none |
+| `--responder-timeout` | Response generation timeout in ms | `180000` |
 | `--tg-token` | Telegram bot token | auto-load from server profile |
 | `--tg-group` | Telegram group ID | auto-load from server profile |
 | `--max-turns` | Max conversation turns | `10` |
@@ -131,12 +133,14 @@ Limited free usage available — see [rosud.com/rosud-call](https://rosud.com/ro
 
 | Version | Summary |
 |---------|---------|
+| v2.4.5 | **mirror-only default** (remove auto member discovery), `--responder-url` HTTP option, subprocess timeout 180s, queue size limit (3) |
+| v2.4.4 | bump version |
 | v2.4.3 | README rewritten in English |
 | v2.4.2 | TG mirror: skip own messages (`senderId !== botId`) |
 | v2.4.1 | Fix TG profile fetch condition (`&&` → `\|\|`) |
 | v2.4.0 | TG config server storage (`GET/PATCH /api/bots/me`) |
 | v2.3.1 | Async WS loop (no blocking during response generation) |
-| v2.3.0 | Auto member discovery when `--respond-to` is omitted |
+| v2.3.0 | Auto member discovery when `--respond-to` is omitted (removed in v2.4.5) |
 
 ---
 
