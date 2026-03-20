@@ -17,9 +17,10 @@
 const WebSocket = require('ws')
 const EventEmitter = require('events')
 
-const PING_INTERVAL_MS = 30_000   // 30초
-const MIN_RETRY_SEC    = 1
-const MAX_RETRY_SEC    = 60
+const PING_INTERVAL_MS        = 30_000   // 30초
+const SUBSCRIBE_ACK_TIMEOUT_MS = 15_000   // 재연결 후 subscribed ACK 대기 최대 15초
+const MIN_RETRY_SEC            = 1
+const MAX_RETRY_SEC            = 60
 
 class WsClient extends EventEmitter {
   /**
@@ -47,6 +48,7 @@ class WsClient extends EventEmitter {
     this._stopped    = false
     this._retryDelay = MIN_RETRY_SEC
     this._pingTimer  = null
+    this._subscribeAckTimer = null
     this._connectResolve = null
     this._connectReject  = null
   }
@@ -82,6 +84,7 @@ class WsClient extends EventEmitter {
   async disconnect() {
     this._stopped = true
     this._clearPing()
+    this._clearSubscribeAckTimer()
     if (this._ws) {
       this._ws.terminate()
       this._ws = null
@@ -134,6 +137,16 @@ class WsClient extends EventEmitter {
     ws.on('open', () => {
       ws.send(JSON.stringify({ type: 'subscribe', room_id: this._room }))
       this._resetPing()
+
+      // 재연결 케이스(최초 connect()와 달리 Promise 없음):
+      // 15초 내 subscribed ACK 미수신 시 좀비 방지를 위해 강제 재연결
+      if (!this._connectResolve) {
+        this._subscribeAckTimer = setTimeout(() => {
+          console.warn('[ws-client] subscribe ACK timeout — forcing reconnect')
+          this._subscribeAckTimer = null
+          ws.terminate()
+        }, SUBSCRIBE_ACK_TIMEOUT_MS)
+      }
     })
 
     ws.on('message', (raw) => {
@@ -142,6 +155,7 @@ class WsClient extends EventEmitter {
       try { msg = JSON.parse(raw) } catch { return }
 
       if (msg.type === 'subscribed') {
+        this._clearSubscribeAckTimer()
         this._retryDelay = MIN_RETRY_SEC
         if (this._connectResolve) {
           this._connectResolve()
@@ -197,6 +211,7 @@ class WsClient extends EventEmitter {
 
     ws.on('close', (code, reason) => {
       this._clearPing()
+      this._clearSubscribeAckTimer()
       // 연결 중 소켓 닫히면 connect() Promise reject
       if (this._connectReject) {
         this._connectReject(new Error(`WS closed before subscribe (code: ${code})`))
@@ -233,6 +248,13 @@ class WsClient extends EventEmitter {
     if (this._pingTimer) {
       clearTimeout(this._pingTimer)
       this._pingTimer = null
+    }
+  }
+
+  _clearSubscribeAckTimer() {
+    if (this._subscribeAckTimer) {
+      clearTimeout(this._subscribeAckTimer)
+      this._subscribeAckTimer = null
     }
   }
 }
