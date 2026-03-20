@@ -133,6 +133,7 @@ Limited free usage available — see [rosud.com/rosud-call](https://rosud.com/ro
 
 | Version | Summary |
 |---------|---------|
+| v2.4.12 | **per-room state redesign** — roomStates Map으로 방별 독립 상태 관리, room_closed 후 5초 재연결, 전역 loopStopped 버그 제거 |
 | v2.4.11 | **built-in supervisor** — `rosud-call listen` 자체 재시작 루프 내장, PM2 불필요. SIGHUP 무시, exponential backoff(3s~60s), 최대 100회 |
 | v2.4.10 | **listen daemon fix v3** — `room_closed` 핸들러에서 `process.exit(0)` 제거, CLI `.catch()` 추가 — 방 종료 후에도 데몬 유지 |
 | v2.4.9 | **listen daemon fix v2** — `setInterval` keep-alive; `process.stdin.resume()` alone insufficient in nohup/bg environments |

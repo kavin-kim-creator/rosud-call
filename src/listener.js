@@ -268,32 +268,42 @@ async function run(opts) {
   // 루프 방지: 연속 응답 카운터 + 중단 플래그
   const MAX_CONSECUTIVE = opts.maxTurns ? parseInt(opts.maxTurns) : 10
   const MAX_QUEUE_SIZE  = 3  // 대기 큐 최대 크기 (초과 시 드랍)
-  let consecutiveCount = 0
-  let loopStopped = false
-
-  // Judge: 3턴마다 대화 계속 여부 판단
-  let turnCount = 0
   const JUDGE_EVERY = 3
-  const conversationHistory = []  // {sender, content}[]
   const MAX_HISTORY = 10
 
-  // ── 동시성 제어 ─────────────────────────────────────────────
+  // ── 방(room)당 독립 상태 관리 ────────────────────────────────
+  // roomId → { loopStopped, consecutiveCount, turnCount, history, queue, isProcessing }
+  const roomStates = new Map()
+
+  function getOrCreateRoomState(rid) {
+    if (!roomStates.has(rid)) {
+      roomStates.set(rid, {
+        loopStopped     : false,
+        consecutiveCount: 0,
+        turnCount       : 0,
+        history         : [],
+        queue           : [],
+        isProcessing    : false,
+      })
+    }
+    return roomStates.get(rid)
+  }
+
+  // ── 동시성 제어 (방별 독립 큐) ──────────────────────────────
   // openclaw 응답 생성이 비동기(~10-30초)이므로 동시에 여러 메시지가
   // 도착해도 응답 생성 작업은 순서대로 한 번에 하나씩만 실행한다.
   // 큐에 쌓인 작업이 없으면 즉시 처리, 있으면 이전 작업 완료 후 실행.
-  const responseQueue = []
-  let isProcessing = false
-
-  async function processQueue() {
-    if (isProcessing || responseQueue.length === 0) return
-    isProcessing = true
-    const task = responseQueue.shift()
+  async function processQueue(rid) {
+    const state = getOrCreateRoomState(rid)
+    if (state.isProcessing || state.queue.length === 0) return
+    state.isProcessing = true
+    const task = state.queue.shift()
     try {
       await task()
     } finally {
-      isProcessing = false
+      state.isProcessing = false
       // 큐에 남은 작업 연속 처리 (setImmediate로 콜스택 해소)
-      setImmediate(processQueue)
+      setImmediate(() => processQueue(rid))
     }
   }
 
@@ -363,6 +373,9 @@ async function run(opts) {
 
   rc.on('room_invite', (e) => {
     console.log(`[초대] 새 방 초대: ${e.roomName} (${e.roomId}) from ${e.invitedBy}`)
+    // 새 방 fresh state 생성 (loopStopped = false 보장)
+    const newState = getOrCreateRoomState(e.roomId)
+    newState.loopStopped = false
     rc.subscribe(e.roomId)
     if (tgToken && tgGroup) {
       sendTg(tgToken, tgGroup, `📨 새 방 초대: ${e.roomName} (${e.roomId})\n초대자: ${e.invitedBy}`)
@@ -374,25 +387,37 @@ async function run(opts) {
   })
 
   rc.on('room_closed', (e) => {
-    console.log(`[방 종료] ${e.reason} (${e.turnCount}/${e.maxTurns}턴)`)
-    loopStopped = true
+    const closedRoomId = e.roomId || roomId
+    console.log(`[방 종료] ${e.reason} (${e.turnCount}/${e.maxTurns}턴) — 방: ${closedRoomId.slice(0, 8)}`)
+    const state = getOrCreateRoomState(closedRoomId)
+    state.loopStopped = true
     if (tgToken && tgGroup) {
-      sendTg(tgToken, tgGroup, `🔒 봇 대화 종료\n방: ${roomId.slice(0, 8)}\n이유: ${e.reason} (${e.turnCount}턴)`)
+      sendTg(tgToken, tgGroup, `🔒 봇 대화 종료\n방: ${closedRoomId.slice(0, 8)}\n이유: ${e.reason} (${e.turnCount}턴)`)
     }
     // process.exit(0) 제거 — 리스너 데몬은 방 종료 후에도 계속 실행 유지
-    // 새 방 초대를 기다리거나, 동일 방 재연결을 허용
-    rc.disconnect()
-    console.log('[리스너] 방 종료 후 대기 중 — 새 초대를 기다립니다...')
+    // rc.disconnect() 제거 — 5초 후 동일 방 재구독 시도
+    console.log(`[리스너] 방 종료 — 5초 후 재연결 시도...`)
+    setTimeout(async () => {
+      try {
+        await rc.subscribe(closedRoomId)
+        state.loopStopped = false
+        console.log(`[재연결] 방 ${closedRoomId.slice(0, 8)} 재구독 성공`)
+      } catch (err) {
+        console.warn(`[재연결 실패] ${err.message} — 새 초대를 기다립니다`)
+      }
+    }, 5000)
   })
 
   rc.on('message', async (msg) => {
     const { senderId, content, createdAt } = msg
+    const msgRoomId = msg.roomId || roomId
+    const state = getOrCreateRoomState(msgRoomId)
     const ts = (createdAt || '').slice(11, 16)
     console.log(`[수신] ${senderId}: ${content.slice(0, 80)}`)
 
     // 대화 이력 추가
-    conversationHistory.push({ sender: senderId, content })
-    if (conversationHistory.length > MAX_HISTORY) conversationHistory.shift()
+    state.history.push({ sender: senderId, content })
+    if (state.history.length > MAX_HISTORY) state.history.shift()
 
     // TG 미러링 — 본인이 보낸 메시지는 제외, 타 봇 메시지만 미러링
     if (tgToken && tgGroup && senderId !== botId) {
@@ -401,9 +426,9 @@ async function run(opts) {
 
     // [ABORT] / [DONE] 수신 시 자동응답 중단
     if (/\[ABORT\]|\[DONE\]/i.test(content)) {
-      if (!loopStopped) {
-        loopStopped = true
-        consecutiveCount = 0
+      if (!state.loopStopped) {
+        state.loopStopped = true
+        state.consecutiveCount = 0
         console.log('[중단] ABORT/DONE 감지 — 자동응답 중단')
       }
       return
@@ -411,58 +436,58 @@ async function run(opts) {
 
     // 자동 응답
     const SKIP_PATTERNS = /^(HEARTBEAT_OK|completed|ok)\b/i
-    if (respondTo.has(senderId) && !loopStopped && !SKIP_PATTERNS.test(content.trim())) {
+    if (respondTo.has(senderId) && !state.loopStopped && !SKIP_PATTERNS.test(content.trim())) {
       // 큐 크기 초과 시 드랍 (처리 지연 시 과부하 방지)
-      if (responseQueue.length >= MAX_QUEUE_SIZE) {
+      if (state.queue.length >= MAX_QUEUE_SIZE) {
         console.warn(`[큐 드랍] 큐 크기(${MAX_QUEUE_SIZE}) 초과 — 메시지 드랍: ${content.slice(0, 40)}`)
         return
       }
 
       // 응답 생성 작업을 큐에 추가하여 순서대로 직렬 처리
       // (openclaw 응답 생성 중 새 메시지가 와도 WS 수신은 계속됨)
-      responseQueue.push(async () => {
+      state.queue.push(async () => {
         // 큐 실행 시점에 다시 loopStopped 체크 (큐 대기 중 상태 변경 가능)
-        if (loopStopped) return
+        if (state.loopStopped) return
 
         // 연속 응답 횟수 초과 시 자동 중단
-        if (consecutiveCount >= MAX_CONSECUTIVE) {
-          if (!loopStopped) {
-            loopStopped = true
+        if (state.consecutiveCount >= MAX_CONSECUTIVE) {
+          if (!state.loopStopped) {
+            state.loopStopped = true
             console.warn(`[루프 방지] ${MAX_CONSECUTIVE}회 연속 응답 초과 — 자동응답 중단`)
-            await rc.send(roomId, `[DONE] 최대 응답 횟수(${MAX_CONSECUTIVE}회) 초과. 대화 종료.`)
+            await rc.send(msgRoomId, `[DONE] 최대 응답 횟수(${MAX_CONSECUTIVE}회) 초과. 대화 종료.`)
           }
           return
         }
 
-        console.log(`[응답 생성] ${senderId} → (${consecutiveCount + 1}/${MAX_CONSECUTIVE})`)
+        console.log(`[응답 생성] ${senderId} → (${state.consecutiveCount + 1}/${MAX_CONSECUTIVE})`)
         // await로 비동기 응답 생성 — WS 이벤트 루프는 블로킹 없이 유지됨
         const response = await getOpenclawResponse(senderId, content, respCmd, roomGoal, respOpts)
         if (response) {
-          consecutiveCount++
-          turnCount++
-          conversationHistory.push({ sender: botId, content: response })
-          if (conversationHistory.length > MAX_HISTORY) conversationHistory.shift()
+          state.consecutiveCount++
+          state.turnCount++
+          state.history.push({ sender: botId, content: response })
+          if (state.history.length > MAX_HISTORY) state.history.shift()
 
-          await rc.send(roomId, response)
+          await rc.send(msgRoomId, response)
           console.log(`[발신] ${response.slice(0, 80)}`)
 
           // 내가 보낸 응답에 [DONE] 포함 시 중단
           if (/\[DONE\]/i.test(response)) {
-            loopStopped = true
-            consecutiveCount = 0
+            state.loopStopped = true
+            state.consecutiveCount = 0
             console.log('[완료] 응답에 [DONE] 포함 — 자동응답 중단')
             return
           }
 
           // Conversation Judge: 3턴마다 대화 계속 여부 판단
-          if (turnCount % JUDGE_EVERY === 0) {
-            console.log(`[Judge] ${turnCount}턴 도달 — 대화 계속 여부 판단 중...`)
-            const shouldContinue = await judgeConversation(conversationHistory, roomGoal, respCmd, respOpts)
+          if (state.turnCount % JUDGE_EVERY === 0) {
+            console.log(`[Judge] ${state.turnCount}턴 도달 — 대화 계속 여부 판단 중...`)
+            const shouldContinue = await judgeConversation(state.history, roomGoal, respCmd, respOpts)
             if (!shouldContinue) {
-              loopStopped = true
-              consecutiveCount = 0
+              state.loopStopped = true
+              state.consecutiveCount = 0
               console.log('[Judge] 대화 종료 판단 — [DONE] 발송')
-              await rc.send(roomId, '[DONE] 대화 목표 달성. 종료합니다.')
+              await rc.send(msgRoomId, '[DONE] 대화 목표 달성. 종료합니다.')
             } else {
               console.log('[Judge] 대화 계속 판단')
             }
@@ -472,7 +497,7 @@ async function run(opts) {
         }
       })
 
-      processQueue()  // 큐에 작업 추가 후 처리 시작 (이미 실행 중이면 no-op)
+      processQueue(msgRoomId)  // 큐에 작업 추가 후 처리 시작 (이미 실행 중이면 no-op)
     }
   })
 
