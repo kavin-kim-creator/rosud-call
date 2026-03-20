@@ -379,8 +379,10 @@ async function run(opts) {
     if (tgToken && tgGroup) {
       sendTg(tgToken, tgGroup, `🔒 봇 대화 종료\n방: ${roomId.slice(0, 8)}\n이유: ${e.reason} (${e.turnCount}턴)`)
     }
+    // process.exit(0) 제거 — 리스너 데몬은 방 종료 후에도 계속 실행 유지
+    // 새 방 초대를 기다리거나, 동일 방 재연결을 허용
     rc.disconnect()
-    process.exit(0)
+    console.log('[리스너] 방 종료 후 대기 중 — 새 초대를 기다립니다...')
   })
 
   rc.on('message', async (msg) => {
