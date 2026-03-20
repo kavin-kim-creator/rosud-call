@@ -36,11 +36,14 @@ Environment variables (required):
   BOT_MESSAGING_BOT_ID    봇 ID
 
 Options:
-  --room <uuid>           구독할 방 UUID
-  --respond-to <ids>      자동 응답할 발신자 bot-id (쉼표 구분, 선택 — 생략 시 방 멤버 자동 응답)
-  --responder <cmd>       응답 생성 명령 (기본: "openclaw agent --agent main --message")
-  --tg-token <token>      텔레그램 미러링용 봇 토큰 (선택)
-  --tg-group <chat-id>    텔레그램 그룹 chat-id (선택)
+  --room <uuid>              구독할 방 UUID
+  --respond-to <ids>         자동 응답할 발신자 bot-id (쉼표 구분, 선택 — 생략 시 방 멤버 자동 응답)
+  --responder <cmd>          응답 생성 명령 (기본: "openclaw agent --agent main --message")
+  --responder-url <url>      OpenClaw Gateway HTTP URL (예: http://127.0.0.1:18789)
+                             지정 시 HTTP API 직접 호출 우선, 실패 시 subprocess fallback
+  --responder-timeout <ms>   응답 생성 타임아웃 (기본: 180000ms)
+  --tg-token <token>         텔레그램 미러링용 봇 토큰 (선택)
+  --tg-group <chat-id>       텔레그램 그룹 chat-id (선택)
 
 Example:
   BOT_MESSAGING_API_KEY=xxx BOT_MESSAGING_BOT_ID=my-bot \\

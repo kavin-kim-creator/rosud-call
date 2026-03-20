@@ -9,6 +9,7 @@
 const { RosudCall } = require('./index')
 const { spawn } = require('child_process')
 const https = require('https')
+const http  = require('http')
 
 /**
  * 외부 명령어를 비동기로 실행하고 stdout+stderr 조합 문자열을 반환한다.
@@ -19,7 +20,7 @@ const https = require('https')
  * @param {number}   timeoutMs 타임아웃 (ms), 기본 60초
  * @returns {Promise<string|null>}
  */
-function runCommand(cmdParts, timeoutMs = 60_000) {
+function runCommand(cmdParts, timeoutMs = 180_000) {
   return new Promise((resolve) => {
     const child = spawn(cmdParts[0], cmdParts.slice(1))
     let stdout = ''
@@ -75,14 +76,93 @@ function cleanOutput(raw) {
 }
 
 /**
+ * OpenClaw Gateway HTTP API로 프롬프트 전송 후 응답 수신.
+ * 연결 실패 / 비정상 상태코드 시 null 반환 → subprocess fallback 트리거.
+ *
+ * @param {string} prompt      전송할 프롬프트
+ * @param {string} gatewayUrl  Gateway HTTP URL (예: http://127.0.0.1:18789)
+ * @param {number} timeoutMs   타임아웃 (ms)
+ * @returns {Promise<string|null>}
+ */
+function callGatewayHttp(prompt, gatewayUrl, timeoutMs = 180_000) {
+  return new Promise((resolve) => {
+    try {
+      const parsedUrl = new URL(gatewayUrl)
+      const lib = parsedUrl.protocol === 'https:' ? https : http
+      const body = JSON.stringify({ prompt, agent: 'main' })
+      const options = {
+        hostname: parsedUrl.hostname,
+        port    : parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80),
+        path    : (parsedUrl.pathname.replace(/\/$/, '') || '') + '/api/agent',
+        method  : 'POST',
+        headers : {
+          'Content-Type'  : 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+        },
+      }
+
+      let settled = false
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true
+          req.destroy()
+          console.warn(`[Gateway HTTP] 타임아웃 ${timeoutMs}ms 초과 — subprocess fallback`)
+          resolve(null)
+        }
+      }, timeoutMs)
+
+      const req = lib.request(options, (res) => {
+        let data = ''
+        res.on('data', (chunk) => { data += chunk })
+        res.on('end', () => {
+          if (!settled) {
+            settled = true
+            clearTimeout(timer)
+            if (res.statusCode >= 200 && res.statusCode < 300) {
+              try {
+                const json = JSON.parse(data)
+                resolve(json.response || json.text || json.content || data)
+              } catch {
+                resolve(data)
+              }
+            } else {
+              console.warn(`[Gateway HTTP] 상태 코드 ${res.statusCode} — subprocess fallback`)
+              resolve(null)
+            }
+          }
+        })
+      })
+
+      req.on('error', (err) => {
+        if (!settled) {
+          settled = true
+          clearTimeout(timer)
+          console.warn(`[Gateway HTTP] 연결 실패: ${err.message} — subprocess fallback`)
+          resolve(null)
+        }
+      })
+
+      req.write(body)
+      req.end()
+    } catch (err) {
+      console.warn(`[Gateway HTTP] URL 파싱 실패: ${err.message} — subprocess fallback`)
+      resolve(null)
+    }
+  })
+}
+
+/**
  * openclaw CLI로 응답 생성. (비동기)
+ * opts.gatewayUrl 지정 시 HTTP API 먼저 시도, 실패 시 subprocess fallback.
+ *
  * @param {string}      sender       발신자 ID
  * @param {string}      content      수신 메시지 내용
  * @param {string|null} responderCmd 사용할 CLI 명령어 (없으면 기본값)
  * @param {string|null} goal         방 goal (있으면 프롬프트에 주입)
+ * @param {object}      opts         옵션 { gatewayUrl, timeoutMs }
  * @returns {Promise<string|null>}
  */
-async function getOpenclawResponse(sender, content, responderCmd, goal) {
+async function getOpenclawResponse(sender, content, responderCmd, goal, opts = {}) {
   let prompt = `봇 메시지 수신. 발신: ${sender} / 내용: ${content}\n\n간결하게 응답해줘.`
   if (goal) {
     prompt += `\n\n목표: ${goal}\n목표 달성 여부를 판단하고 달성됐으면 반드시 [DONE]을 붙여라.`
@@ -90,9 +170,17 @@ async function getOpenclawResponse(sender, content, responderCmd, goal) {
     prompt += ` 대화가 끝났으면 마지막에 [DONE]을 붙여줘.`
   }
 
+  const timeoutMs = opts.timeoutMs || 180_000
+
+  // Gateway HTTP API 우선 시도
+  if (opts.gatewayUrl) {
+    const resp = await callGatewayHttp(prompt, opts.gatewayUrl, timeoutMs)
+    if (resp !== null) return cleanOutput(String(resp)) || null
+    // null이면 subprocess fallback
+  }
+
   const cmdParts = (responderCmd || 'openclaw agent --agent main --message').split(' ')
-  // 프롬프트를 마지막 인자로 추가하여 비동기 실행 (타임아웃 60초)
-  const raw = await runCommand([...cmdParts, prompt], 60_000)
+  const raw = await runCommand([...cmdParts, prompt], timeoutMs)
   if (raw === null) return null
 
   return cleanOutput(raw) || null
@@ -101,12 +189,15 @@ async function getOpenclawResponse(sender, content, responderCmd, goal) {
 /**
  * Conversation Judge — 3턴마다 대화 계속 여부 판단.
  * openclaw에게 yes/no 판단 요청.
+ * opts.gatewayUrl 지정 시 HTTP API 우선 시도, 실패 시 subprocess fallback.
+ *
  * @param {Array<{sender: string, content: string}>} history  최근 대화 내역
  * @param {string|null} goal
  * @param {string|null} responderCmd
+ * @param {object}      opts  옵션 { gatewayUrl, timeoutMs }
  * @returns {Promise<boolean>}  true = 계속, false = 종료
  */
-async function judgeConversation(history, goal, responderCmd) {
+async function judgeConversation(history, goal, responderCmd, opts = {}) {
   const historyStr = history
     .map(m => `${m.sender}: ${m.content.slice(0, 200)}`)
     .join('\n')
@@ -115,9 +206,21 @@ async function judgeConversation(history, goal, responderCmd) {
     ? `아래 대화를 분석해서 "${goal}" 목표가 달성됐는지 판단해.\n달성됐으면 "no" (대화 불필요), 아직이면 "yes" (대화 계속 필요).\n반드시 yes 또는 no 한 단어만 답해라.\n\n대화:\n${historyStr}`
     : `아래 대화를 분석해서 계속 진행이 필요한지 판단해.\n계속 필요하면 "yes", 대화가 끝났으면 "no".\n반드시 yes 또는 no 한 단어만 답해라.\n\n대화:\n${historyStr}`
 
+  const judgeTimeout = 30_000  // judge는 30초 고정
+
+  // Gateway HTTP API 우선 시도
+  if (opts.gatewayUrl) {
+    const resp = await callGatewayHttp(prompt, opts.gatewayUrl, judgeTimeout)
+    if (resp !== null) {
+      const clean = cleanOutput(String(resp)).replace(/\n/g, ' ').toLowerCase()
+      return !(/\bno\b/.test(clean))
+    }
+    // null이면 subprocess fallback
+  }
+
   const cmdParts = (responderCmd || 'openclaw agent --agent main --message').split(' ')
   // 비동기 실행 (타임아웃 30초)
-  const raw = await runCommand([...cmdParts, prompt], 30_000)
+  const raw = await runCommand([...cmdParts, prompt], judgeTimeout)
   if (raw === null) return true  // 판단 실패 시 기본 계속 진행
 
   const clean = cleanOutput(raw).replace(/\n/g, ' ').toLowerCase()
@@ -151,7 +254,10 @@ async function run(opts) {
   const roomId  = opts.room
   let tgToken = opts.tgToken  || process.env.TELEGRAM_BOT_TOKEN || ''
   let tgGroup = opts.tgGroup  || process.env.TG_GROUP_ID || ''
-  const respCmd = opts.responder || null
+  const respCmd         = opts.responder || null
+  const responderUrl    = opts.responderUrl || null
+  const responderTimeout = opts.responderTimeout ? parseInt(opts.responderTimeout) : 180_000
+  const respOpts        = { gatewayUrl: responderUrl, timeoutMs: responderTimeout }
 
   const respondTo = new Set(
     opts.respondTo
@@ -161,6 +267,7 @@ async function run(opts) {
 
   // 루프 방지: 연속 응답 카운터 + 중단 플래그
   const MAX_CONSECUTIVE = opts.maxTurns ? parseInt(opts.maxTurns) : 10
+  const MAX_QUEUE_SIZE  = 3  // 대기 큐 최대 크기 (초과 시 드랍)
   let consecutiveCount = 0
   let loopStopped = false
 
@@ -195,10 +302,12 @@ async function run(opts) {
   if (!roomId) { console.error('--room 옵션 필요'); process.exit(1) }
 
   console.log(`[rosud-call listen] 시작`)
-  console.log(`  botId     : ${botId}`)
-  console.log(`  room      : ${roomId}`)
-  console.log(`  respondTo : ${[...respondTo].join(', ') || '(없음 — 미러링만)'}`)
-  console.log(`  maxTurns  : ${MAX_CONSECUTIVE}`)
+  console.log(`  botId        : ${botId}`)
+  console.log(`  room         : ${roomId}`)
+  console.log(`  respondTo    : ${[...respondTo].join(', ') || '(없음 — 미러링만)'}`)
+  console.log(`  maxTurns     : ${MAX_CONSECUTIVE}`)
+  console.log(`  timeout      : ${responderTimeout}ms`)
+  if (responderUrl) console.log(`  responderUrl : ${responderUrl}`)
 
   const rc = new RosudCall({ apiKey, botId, filterSelf: true })
 
@@ -291,6 +400,12 @@ async function run(opts) {
     // 자동 응답
     const SKIP_PATTERNS = /^(HEARTBEAT_OK|completed|ok)\b/i
     if (respondTo.has(senderId) && !loopStopped && !SKIP_PATTERNS.test(content.trim())) {
+      // 큐 크기 초과 시 드랍 (처리 지연 시 과부하 방지)
+      if (responseQueue.length >= MAX_QUEUE_SIZE) {
+        console.warn(`[큐 드랍] 큐 크기(${MAX_QUEUE_SIZE}) 초과 — 메시지 드랍: ${content.slice(0, 40)}`)
+        return
+      }
+
       // 응답 생성 작업을 큐에 추가하여 순서대로 직렬 처리
       // (openclaw 응답 생성 중 새 메시지가 와도 WS 수신은 계속됨)
       responseQueue.push(async () => {
@@ -309,7 +424,7 @@ async function run(opts) {
 
         console.log(`[응답 생성] ${senderId} → (${consecutiveCount + 1}/${MAX_CONSECUTIVE})`)
         // await로 비동기 응답 생성 — WS 이벤트 루프는 블로킹 없이 유지됨
-        const response = await getOpenclawResponse(senderId, content, respCmd, roomGoal)
+        const response = await getOpenclawResponse(senderId, content, respCmd, roomGoal, respOpts)
         if (response) {
           consecutiveCount++
           turnCount++
@@ -330,7 +445,7 @@ async function run(opts) {
           // Conversation Judge: 3턴마다 대화 계속 여부 판단
           if (turnCount % JUDGE_EVERY === 0) {
             console.log(`[Judge] ${turnCount}턴 도달 — 대화 계속 여부 판단 중...`)
-            const shouldContinue = await judgeConversation(conversationHistory, roomGoal, respCmd)
+            const shouldContinue = await judgeConversation(conversationHistory, roomGoal, respCmd, respOpts)
             if (!shouldContinue) {
               loopStopped = true
               consecutiveCount = 0
