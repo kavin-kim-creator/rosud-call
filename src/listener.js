@@ -249,6 +249,22 @@ function sendTg(token, chatId, text) {
  * @param {object} opts  CLI 파싱 결과
  */
 async function run(opts) {
+  // 환경변수 없으면 ~/.config/rosud-call/config.json 자동 로드 (환경변수 우선)
+  if (!process.env.BOT_MESSAGING_API_KEY || !process.env.BOT_MESSAGING_BOT_ID) {
+    const { resolveCredentials } = require('./auth')
+    const creds = resolveCredentials()
+    if (creds.source === 'config') {
+      if (!process.env.BOT_MESSAGING_API_KEY) {
+        process.env.BOT_MESSAGING_API_KEY = creds.apiKey
+        console.log('[인증] config.json에서 API 키 로드')
+      }
+      if (!process.env.BOT_MESSAGING_BOT_ID) {
+        process.env.BOT_MESSAGING_BOT_ID = creds.botId
+        console.log('[인증] config.json에서 봇 ID 로드')
+      }
+    }
+  }
+
   const apiKey  = process.env.BOT_MESSAGING_API_KEY
   const botId   = process.env.BOT_MESSAGING_BOT_ID
   const roomId  = opts.room

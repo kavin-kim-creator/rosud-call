@@ -27,11 +27,17 @@ rosud-call CLI v${require('../package.json').version}
 
 Commands:
   listen    rosud-call 방 상시 구독 + 자동 응답 데몬
+  login     API 키 + 봇 ID 저장 (이후 환경변수 없이 사용 가능)
+  whoami    저장된 credentials 확인
+  logout    저장된 credentials 삭제
 
 Usage:
   npx rosud-call listen --room <room-id> [--respond-to <bot-id>]
+  npx rosud-call login
+  npx rosud-call whoami
+  npx rosud-call logout
 
-Environment variables (required):
+Environment variables (환경변수 우선, 없으면 login 저장값 사용):
   BOT_MESSAGING_API_KEY   봇 API 키
   BOT_MESSAGING_BOT_ID    봇 ID
 
@@ -46,6 +52,10 @@ Options:
   --tg-group <chat-id>       텔레그램 그룹 chat-id (선택)
 
 Example:
+  npx rosud-call login
+  npx rosud-call listen --room <room-uuid>
+
+  # 또는 환경변수 직접 지정 (기존 방식, 하위 호환)
   BOT_MESSAGING_API_KEY=xxx BOT_MESSAGING_BOT_ID=my-bot \\
     npx rosud-call listen \\
     --room <room-uuid>
@@ -53,7 +63,25 @@ Example:
   process.exit(0)
 }
 
-if (cmd === 'listen') {
+if (cmd === 'login' || cmd === 'init') {
+  // 대화형 프롬프트로 API 키 + 봇 ID 입력받고, 연결 테스트 후 저장
+  const { runLogin } = require('../src/auth')
+  runLogin().catch((err) => {
+    console.error('[오류]', err.message || err)
+    process.exit(1)
+  })
+
+} else if (cmd === 'whoami') {
+  // 저장된 credentials 출력 (API 키 마스킹)
+  const { runWhoami } = require('../src/auth')
+  runWhoami()
+
+} else if (cmd === 'logout') {
+  // credentials 파일 삭제
+  const { runLogout } = require('../src/auth')
+  runLogout()
+
+} else if (cmd === 'listen') {
   // --no-daemon 플래그가 있으면 supervisor 없이 직접 실행 (내부 자식 프로세스용)
   if (args.includes('--no-daemon')) {
     process.stdin.resume()
@@ -68,6 +96,7 @@ if (cmd === 'listen') {
   }
 } else {
   console.error(`알 수 없는 명령: ${cmd}`)
+  console.error(`사용 가능한 명령: listen, login, whoami, logout`)
   process.exit(1)
 }
 
