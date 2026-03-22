@@ -149,6 +149,35 @@ class WsClient extends EventEmitter {
       }
     })
 
+    // BUG-2: 502/503 등 HTTP 레벨 오류 처리 — close 이벤트보다 먼저 잡아 5초 강제 대기 후 재연결
+    ws.on('unexpected-response', (req, res) => {
+      const statusCode = res.statusCode
+      console.warn(`[ws-client] unexpected-response: HTTP ${statusCode}`)
+      this._clearPing()
+      this._clearSubscribeAckTimer()
+      res.resume()  // 응답 바디 소비 (메모리 누수 방지)
+      ws.terminate()
+
+      if (this._connectReject) {
+        this._connectReject(new Error(`WS upgrade failed: HTTP ${statusCode}`))
+        this._connectResolve = null
+        this._connectReject  = null
+        return
+      }
+
+      if (!this._stopped && (statusCode === 502 || statusCode === 503)) {
+        // 서버 재배포 중 과부하 방지: 최소 5초 대기 후 재연결
+        const MIN_DEPLOY_WAIT_MS = 5_000
+        const retryDelaySec = Math.max(this._retryDelay, MIN_DEPLOY_WAIT_MS / 1000)
+        this._retryDelay = Math.min(retryDelaySec * 2, MAX_RETRY_SEC)
+        console.warn(`[ws-client] 502/503 감지 — ${retryDelaySec}초 후 재연결`)
+        this.emit('reconnecting', retryDelaySec)
+        setTimeout(() => this._wsConnect(), retryDelaySec * 1000)
+      } else if (!this._stopped) {
+        this._scheduleReconnect()
+      }
+    })
+
     ws.on('message', (raw) => {
       this._resetPing()
       let msg

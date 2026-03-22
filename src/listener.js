@@ -7,6 +7,7 @@
  */
 
 const { RosudCall } = require('./index')
+const { isDuplicate, markSent } = require('./dedup')
 const { spawn } = require('child_process')
 const https = require('https')
 const http  = require('http')
@@ -339,7 +340,8 @@ async function run(opts) {
 
   // tgToken/tgGroup 하나라도 미설정 시 서버 프로필에서 자동 조회
   if (!tgToken || !tgGroup) {
-    try {
+    // BUG-4 수정: getBotProfile() 실패 시 3초 후 1회 재시도
+    const fetchProfile = async () => {
       const profile = await rc.getBotProfile()
       if (profile?.tg_token) {
         tgToken = profile.tg_token
@@ -349,11 +351,25 @@ async function run(opts) {
         tgGroup = profile.tg_group
         console.log(`  [TG] 서버 프로필에서 tg_group 로드 완료`)
       }
-      if (!tgToken && !tgGroup) {
-        console.log('  [TG] 서버에도 TG 설정 없음 — 미러링 비활성')
+      if (!profile?.tg_token && !profile?.tg_group) {
+        console.log('  [TG] 서버에도 TG 설정 없음')
       }
+    }
+
+    try {
+      await fetchProfile()
     } catch (err) {
-      console.warn(`[경고] 봇 프로필 조회 실패 — TG 미러링 비활성 (${err.message})`)
+      console.warn(`[경고] 봇 프로필 조회 실패 (${err.message}) — 3초 후 재시도`)
+      await new Promise(r => setTimeout(r, 3000))
+      try {
+        await fetchProfile()
+      } catch (err2) {
+        console.warn(`[경고] 봇 프로필 재시도도 실패 (${err2.message})`)
+      }
+    }
+
+    if (!tgToken) {
+      console.log('  [TG] TG 미러링 비활성 (토큰 없음)')
     }
   }
 
@@ -429,6 +445,15 @@ async function run(opts) {
     const msgRoomId = msg.roomId || roomId
     const state = getOrCreateRoomState(msgRoomId)
     const ts = (createdAt || '').slice(11, 16)
+
+    // BUG-1: 중복 메시지 방지 — dedup 캐시로 동일 메시지 재처리 차단
+    const dedupKey = `${senderId}:${content.slice(0, 100)}`
+    if (isDuplicate(dedupKey)) {
+      console.log(`[dedup] 중복 메시지 스킵: ${senderId}: ${content.slice(0, 40)}`)
+      return
+    }
+    markSent(dedupKey)
+
     console.log(`[수신] ${senderId}: ${content.slice(0, 80)}`)
 
     // 대화 이력 추가

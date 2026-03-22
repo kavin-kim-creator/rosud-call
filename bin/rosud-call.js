@@ -27,12 +27,14 @@ rosud-call CLI v${require('../package.json').version}
 
 Commands:
   listen    rosud-call 방 상시 구독 + 자동 응답 데몬
+  send      방에 메시지 1회 발송 후 즉시 종료
   login     API 키 + 봇 ID 저장 (이후 환경변수 없이 사용 가능)
   whoami    저장된 credentials 확인
   logout    저장된 credentials 삭제
 
 Usage:
   npx rosud-call listen --room <room-id> [--respond-to <bot-id>]
+  npx rosud-call send --room <room-id> --message <text>
   npx rosud-call login
   npx rosud-call whoami
   npx rosud-call logout
@@ -43,6 +45,8 @@ Environment variables (환경변수 우선, 없으면 login 저장값 사용):
 
 Options:
   --room <uuid>              구독할 방 UUID
+  --message <text>           (send 전용) 발송할 메시지 내용
+  --api-key <key>            (send 전용) API 키 직접 지정 (환경변수 대체)
   --respond-to <ids>         자동 응답할 발신자 bot-id (쉼표 구분, 선택 — 생략 시 방 멤버 자동 응답)
   --responder <cmd>          응답 생성 명령 (기본: "openclaw agent --agent main --message")
   --responder-url <url>      OpenClaw Gateway HTTP URL (예: http://127.0.0.1:18789)
@@ -54,6 +58,7 @@ Options:
 Example:
   npx rosud-call login
   npx rosud-call listen --room <room-uuid>
+  npx rosud-call send --room <room-uuid> --message "안녕하세요"
 
   # 또는 환경변수 직접 지정 (기존 방식, 하위 호환)
   BOT_MESSAGING_API_KEY=xxx BOT_MESSAGING_BOT_ID=my-bot \\
@@ -81,6 +86,52 @@ if (cmd === 'login' || cmd === 'init') {
   const { runLogout } = require('../src/auth')
   runLogout()
 
+} else if (cmd === 'send') {
+  // BUG-3: 일회성 메시지 발송 명령
+  const opts = parseArgs(args.slice(1))
+  const roomId  = opts.room
+  const message = opts.message
+  const apiKey  = opts.apiKey || process.env.BOT_MESSAGING_API_KEY
+
+  if (!roomId)  { console.error('--room 옵션 필요'); process.exit(1) }
+  if (!message) { console.error('--message 옵션 필요'); process.exit(1) }
+
+  ;(async () => {
+    // credentials 자동 로드 (환경변수 우선, 없으면 config.json)
+    let resolvedApiKey = apiKey
+    let botId = process.env.BOT_MESSAGING_BOT_ID
+    if (!resolvedApiKey || !botId) {
+      const { resolveCredentials } = require('../src/auth')
+      const creds = resolveCredentials()
+      if (creds.source === 'config') {
+        if (!resolvedApiKey) resolvedApiKey = creds.apiKey
+        if (!botId)          botId = creds.botId
+      }
+    }
+
+    if (!resolvedApiKey) { console.error('BOT_MESSAGING_API_KEY 환경변수 또는 --api-key 필요'); process.exit(1) }
+    if (!botId)          { console.error('BOT_MESSAGING_BOT_ID 환경변수 필요'); process.exit(1) }
+
+    const { WsClient } = require('../src/ws-client')
+    const { RosudCall } = require('../src/index')
+
+    const rc = new RosudCall({ apiKey: resolvedApiKey, botId, filterSelf: false })
+    try {
+      await rc.connect(roomId)
+      await rc.send(roomId, message)
+      console.log(`[send] 발송 완료: ${message.slice(0, 80)}`)
+    } catch (err) {
+      console.error('[send 오류]', err.message || err)
+      process.exit(1)
+    } finally {
+      await rc.disconnect()
+    }
+    process.exit(0)
+  })().catch((err) => {
+    console.error('[오류]', err.message || err)
+    process.exit(1)
+  })
+
 } else if (cmd === 'listen') {
   // --no-daemon 플래그가 있으면 supervisor 없이 직접 실행 (내부 자식 프로세스용)
   if (args.includes('--no-daemon')) {
@@ -96,7 +147,7 @@ if (cmd === 'login' || cmd === 'init') {
   }
 } else {
   console.error(`알 수 없는 명령: ${cmd}`)
-  console.error(`사용 가능한 명령: listen, login, whoami, logout`)
+  console.error(`사용 가능한 명령: listen, send, login, whoami, logout`)
   process.exit(1)
 }
 
