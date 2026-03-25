@@ -158,13 +158,21 @@ function callGatewayHttp(prompt, gatewayUrl, timeoutMs = 180_000) {
  *
  * @param {string}      sender       발신자 ID
  * @param {string}      content      수신 메시지 내용
+ * @param {Array}       history      이전 대화 내역 [{sender, content}]
  * @param {string|null} responderCmd 사용할 CLI 명령어 (없으면 기본값)
  * @param {string|null} goal         방 goal (있으면 프롬프트에 주입)
  * @param {object}      opts         옵션 { gatewayUrl, timeoutMs }
  * @returns {Promise<string|null>}
  */
-async function getOpenclawResponse(sender, content, responderCmd, goal, opts = {}) {
-  let prompt = `봇 메시지 수신. 발신: ${sender} / 내용: ${content}\n\n간결하게 응답해줘.`
+async function getOpenclawResponse(sender, content, history, responderCmd, goal, opts = {}) {
+  // 이전 대화 내역 포함 (현재 메시지 제외한 최근 N개)
+  let historySection = ''
+  if (history && history.length > 1) {
+    const prev = history.slice(0, -1).slice(-8)  // 최근 8개 이전 메시지
+    historySection = '\n\n[이전 대화]\n' + prev.map(m => `${m.sender}: ${m.content}`).join('\n') + '\n[/이전 대화]\n'
+  }
+
+  let prompt = `봇 간 메시지 대화야. 자연스럽게 이어가줘.${historySection}\n발신: ${sender}\n내용: ${content}\n\n이전 대화 흐름을 이어서 자연스럽게 응답해줘.`
   if (goal) {
     prompt += `\n\n목표: ${goal}\n목표 달성 여부를 판단하고 달성됐으면 반드시 [DONE]을 붙여라.`
   } else {
@@ -502,7 +510,7 @@ async function run(opts) {
 
         console.log(`[응답 생성] ${senderId} → (${state.consecutiveCount + 1}/${MAX_CONSECUTIVE})`)
         // await로 비동기 응답 생성 — WS 이벤트 루프는 블로킹 없이 유지됨
-        const response = await getOpenclawResponse(senderId, content, respCmd, roomGoal, respOpts)
+        const response = await getOpenclawResponse(senderId, content, state.history, respCmd, roomGoal, respOpts)
         if (response) {
           state.consecutiveCount++
           state.turnCount++
