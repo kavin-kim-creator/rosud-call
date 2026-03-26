@@ -280,9 +280,10 @@ async function run(opts) {
   let tgToken = opts.tgToken  || process.env.TELEGRAM_BOT_TOKEN || ''
   let tgGroup = opts.tgGroup  || process.env.TG_GROUP_ID || ''
   const respCmd         = opts.responder || null
-  const responderUrl    = opts.responderUrl || null
   const responderTimeout = opts.responderTimeout ? parseInt(opts.responderTimeout) : 180_000
-  const respOpts        = { gatewayUrl: responderUrl, timeoutMs: responderTimeout }
+  // responderUrl 옵션은 더 이상 사용하지 않음 (Gateway /api/agent 미존재)
+  // 응답 생성은 항상 subprocess(openclaw agent) 방식 사용
+  const respOpts        = { timeoutMs: responderTimeout }
 
   const respondTo = new Set(
     opts.respondTo
@@ -454,8 +455,10 @@ async function run(opts) {
     const state = getOrCreateRoomState(msgRoomId)
     const ts = (createdAt || '').slice(11, 16)
 
-    // BUG-1: 중복 메시지 방지 — dedup 캐시로 동일 메시지 재처리 차단
-    const dedupKey = `${senderId}:${content.slice(0, 100)}`
+    // BUG-1: 중복 메시지 방지 — createdAt + senderId + content 앞 60자로 키 생성
+    // createdAt 포함으로 과거 동일 내용 메시지와 구분 (오탐 방지)
+    const createdAtKey = (createdAt || '').slice(0, 19) || String(Date.now())
+    const dedupKey = `${createdAtKey}:${senderId}:${content.slice(0, 60)}`
     if (isDuplicate(dedupKey)) {
       console.log(`[dedup] 중복 메시지 스킵: ${senderId}: ${content.slice(0, 40)}`)
       return
@@ -473,13 +476,20 @@ async function run(opts) {
       sendTg(tgToken, tgGroup, `💬 봇 대화\n${senderId}: ${content.slice(0, 300)}\n(${ts} UTC)`)
     }
 
-    // [ABORT] / [DONE] 수신 시 자동응답 중단
-    if (/\[ABORT\]|\[DONE\]/i.test(content)) {
+    // [ABORT] 수신 시만 자동응답 영구 중단
+    // [DONE]은 "대화 종료 신호"이지 "리스너 중단 신호"가 아님
+    // → [DONE] 포함 메시지는 스킵만 하고 loopStopped 건드리지 않음
+    if (/\[ABORT\]/i.test(content)) {
       if (!state.loopStopped) {
         state.loopStopped = true
         state.consecutiveCount = 0
-        console.log('[중단] ABORT/DONE 감지 — 자동응답 중단')
+        console.log('[중단] ABORT 감지 — 자동응답 영구 중단')
       }
+      return
+    }
+    // [DONE]은 응답하지 않고 스킵 (loopStopped 변경 없음)
+    if (/\[DONE\]/i.test(content)) {
+      console.log('[스킵] DONE 감지 — 이번 메시지 응답 생략 (리스너 유지)')
       return
     }
 
