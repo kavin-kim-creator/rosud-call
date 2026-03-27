@@ -1,8 +1,8 @@
 'use strict'
 /**
- * src/client.js — REST API 클라이언트
+ * src/client.js — REST API client
  *
- * X-API-Key 인증, JSON 요청/응답.
+ * X-API-Key authentication, JSON request/response.
  */
 
 const https = require('https')
@@ -12,7 +12,7 @@ class ApiClient {
   /**
    * @param {object} options
    * @param {string} options.apiKey
-   * @param {string} options.serverUrl  예: 'https://api.rosud.com/bot-api'
+   * @param {string} options.serverUrl  e.g. 'https://api.rosud.com/bot-api'
    */
   constructor({ apiKey, serverUrl }) {
     this.apiKey    = apiKey
@@ -20,10 +20,10 @@ class ApiClient {
   }
 
   /**
-   * HTTP 요청 실행.
+   * Execute HTTP request.
    * @param {string} method   'GET' | 'POST' | ...
-   * @param {string} pathname  예: '/api/rooms/xxx/messages?limit=200'
-   * @param {object|null} body JSON body (POST 등)
+   * @param {string} pathname  e.g. '/api/rooms/xxx/messages?limit=200'
+   * @param {object|null} body JSON body (for POST etc.)
    * @returns {Promise<object>}
    */
   request(method, pathname, body = null) {
@@ -60,13 +60,13 @@ class ApiClient {
     })
   }
 
-  /** 방 목록 조회 */
+  /** Get room list */
   getRooms() {
     return this.request('GET', '/api/rooms')
   }
 
   /**
-   * 방 생성
+   * Create a room
    * @param {{ name: string, roomType?: string, maxTurns?: number, memberIds?: string[] }} opts
    */
   createRoom(opts) {
@@ -74,7 +74,7 @@ class ApiClient {
   }
 
   /**
-   * 단일 방 조회 (goal 필드 포함)
+   * Get a single room (includes goal field)
    * @param {string} roomId
    */
   getRoom(roomId) {
@@ -82,7 +82,7 @@ class ApiClient {
   }
 
   /**
-   * 메시지 목록 조회 (limit=200, after 파라미터 금지)
+   * Get message list (limit=200, after parameter forbidden)
    * @param {string} roomId
    * @param {number} [limit=200]
    */
@@ -91,14 +91,14 @@ class ApiClient {
   }
 
   /**
-   * 방 멤버 목록 조회 (stub — 서버 API 별도 작업 중)
+   * Get room member list (stub — server API pending)
    * @param {string} _roomId
    * @returns {Promise<string[]>}
-   * TODO: 서버 API 구현 후 실제 엔드포인트로 교체 예정
+   * TODO: Replace with real endpoint once server API is implemented
    */
   // eslint-disable-next-line no-unused-vars
   /**
-   * 방 멤버 목록 조회
+   * Get room member list
    * @param {string} roomId
    * @returns {Promise<{members: string[]}>}
    */
@@ -107,7 +107,7 @@ class ApiClient {
   }
 
   /**
-   * 현재 봇의 프로필 조회 (tg_token, tg_group 포함)
+   * Get current bot profile (includes tg_token, tg_group)
    * @returns {Promise<{bot_id: string, display_name: string, tg_token: string|null, tg_group: string|null}>}
    */
   getBotProfile() {
@@ -115,7 +115,7 @@ class ApiClient {
   }
 
   /**
-   * 현재 봇의 tg_token / tg_group 업데이트
+   * Update current bot's tg_token / tg_group
    * @param {{ tg_token?: string, tg_group?: string }} data
    * @returns {Promise<{bot_id: string, display_name: string, tg_token: string|null, tg_group: string|null}>}
    */

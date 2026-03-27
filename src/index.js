@@ -2,18 +2,18 @@
 /**
  * rosud-call v2 — Bot Messaging SDK
  *
- * 오늘(2026-03-15) 겪은 버그 10종을 내부에서 모두 처리.
- * 사용자는 비즈니스 로직만 작성하면 됨.
+ * Handles all 10 bugs encountered today (2026-03-15) internally.
+ * Users only need to write business logic.
  *
- * 버그 대응 내역:
- *  #1  limit=30 → 구 메시지 재전송   → 내부 limit=200 + ID 루프
- *  #2  after 커서 역방향             → after 파라미터 사용 금지
- *  #3  좀비 프로세스                 → ping/pong 헬스체크 + 지수 백오프
- *  #4  LLM 헤더 노출                 → sanitizer 내장
- *  #6  자기 메시지 루프              → botId 자동 필터
- *  #8  중복 프로세스                 → 파일 기반 lock
- *  #9  폴러 자기 메시지 스킵         → poll()도 botId 자동 필터
- *  #10 ws handle() 자동응답          → on('message') 에서 send() 분리
+ * Bug fixes:
+ *  #1  limit=30 → old message re-delivery  → internal limit=200 + ID loop
+ *  #2  after cursor direction bug           → after parameter forbidden
+ *  #3  zombie process                       → ping/pong health check + exponential backoff
+ *  #4  LLM header exposure                  → sanitizer built-in
+ *  #6  self-message loop                    → botId auto-filter
+ *  #8  duplicate processes                  → file-based lock
+ *  #9  poller self-message skip             → poll() also auto-filters by botId
+ *  #10 ws handle() auto-response            → send() separated from on('message')
  */
 
 const EventEmitter = require('events')
@@ -35,7 +35,7 @@ class RosudCall extends EventEmitter {
    * @param {number}   [options.dedupTtlMs=60000]
    * @param {boolean}  [options.sanitize=true]
    * @param {string[]} [options.skipSenders=[]]
-   * @param {boolean}  [options.filterSelf=true]  false이면 자기 메시지도 emit
+   * @param {boolean}  [options.filterSelf=true]  if false, also emit own messages
    */
   constructor(options = {}) {
     super()
@@ -50,8 +50,8 @@ class RosudCall extends EventEmitter {
       filterSelf  = true,
     } = options
 
-    if (!apiKey) throw new Error('rosud-call: apiKey 필수')
-    if (!botId)  throw new Error('rosud-call: botId 필수')
+    if (!apiKey) throw new Error('rosud-call: apiKey is required')
+    if (!botId)  throw new Error('rosud-call: botId is required')
 
     this.apiKey      = apiKey
     this.botId       = botId
@@ -61,16 +61,16 @@ class RosudCall extends EventEmitter {
     this.skipSenders = new Set(skipSenders)
     this.filterSelf  = filterSelf
 
-    // botId를 파일명에 포함시켜 같은 서버의 다른 봇과 충돌 방지
+    // Include botId in filename to avoid conflicts with other bots on the same server
     const safeId = botId.replace(/[^a-zA-Z0-9_-]/g, '_')
     this._dedupFile  = `/tmp/rosud-call-dedup-${safeId}.json`
     this._stateFile  = `/tmp/rosud-call-state-${safeId}.json`
     this._pollingTimer = null
 
-    // REST 클라이언트
+    // REST client
     this._api = new ApiClient({ apiKey, serverUrl })
 
-    // WS 클라이언트
+    // WS client
     this._ws = new WsClient({
       apiKey,
       wsUrl,
@@ -81,7 +81,7 @@ class RosudCall extends EventEmitter {
       toMsg       : (m)   => this._toMsg(m),
     })
 
-    // WS 이벤트를 RosudCall 이벤트로 전파
+    // Propagate WS events to RosudCall events
     this._ws.on('connected',    ()    => this.emit('connected'))
     this._ws.on('disconnected', (e)   => this.emit('disconnected', e))
     this._ws.on('reconnecting', (sec) => this.emit('reconnecting', sec))
@@ -101,37 +101,37 @@ class RosudCall extends EventEmitter {
   }
 
   // ────────────────────────────────────────────────
-  // WS 리스너 모드 (장기 데몬용)
+  // WS listener mode (long-running daemon)
   // ────────────────────────────────────────────────
 
-  /** WS 연결 + 자동 재연결 시작 */
+  /** Start WS connection + auto-reconnect */
   async connect(roomId) {
     return this._ws.connect(roomId)
   }
 
-  /** WS 연결 종료 */
+  /** Disconnect WS */
   async disconnect() {
     this.stopPolling()
     return this._ws.disconnect()
   }
 
-  /** 이미 연결된 WS에 추가 방 구독 요청 */
+  /** Subscribe to an additional room on an already-connected WS */
   subscribe(roomId) {
     this._ws.subscribeRoom(roomId)
   }
 
   // ────────────────────────────────────────────────
-  // REST 폴링 모드 (단기 실행 스크립트용)
+  // REST polling mode (short-lived scripts)
   // ────────────────────────────────────────────────
 
-  /** 1회 REST 폴링 실행 */
+  /** Run a single REST poll cycle */
   async poll(roomId, options = {}) {
     const opts = { stateFile: this._stateFile, ...options }
     return this._poller.poll(roomId, opts)
   }
 
   /**
-   * 주기적 폴링 시작.
+   * Start periodic polling.
    * @param {string} roomId
    * @param {object} [options]
    * @param {number} [options.intervalMs=5000]
@@ -152,7 +152,7 @@ class RosudCall extends EventEmitter {
     this._pollingTimer = setTimeout(tick, 0)
   }
 
-  /** 주기적 폴링 중지 */
+  /** Stop periodic polling */
   stopPolling() {
     if (this._pollingTimer) {
       clearTimeout(this._pollingTimer)
@@ -161,14 +161,14 @@ class RosudCall extends EventEmitter {
   }
 
   // ────────────────────────────────────────────────
-  // 메시지 발신
+  // Message sending
   // ────────────────────────────────────────────────
 
   /**
-   * 메시지 발신.
-   * - 활성 WS 연결이 있으면 그걸로 발신
-   * - 없으면 일회성 WS 연결 사용
-   * - 60초 내 동일 content 재발신 방지
+   * Send a message.
+   * - Uses active WS connection if available
+   * - Falls back to one-time WS connection otherwise
+   * - Prevents re-sending the same content within 60s
    */
   async send(roomId, content) {
     if (isDuplicate(content, this.dedupTtlMs, this._dedupFile)) {
@@ -176,14 +176,14 @@ class RosudCall extends EventEmitter {
       return null
     }
 
-    // 활성 WS 연결 사용
+    // Use active WS connection
     if (this._ws.isOpen()) {
       await this._ws.sendMessage(roomId, content)
       markSent(content, this.dedupTtlMs, this._dedupFile)
       return { ok: true }
     }
 
-    // 일회성 WS 연결로 발신
+    // Fall back to one-time WS connection
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(this.wsUrl, {
         headers: { Authorization: `Bearer ${this.apiKey}` },
@@ -210,36 +210,36 @@ class RosudCall extends EventEmitter {
   // REST API
   // ────────────────────────────────────────────────
 
-  /** 방 목록 조회 */
+  /** Get room list */
   getRooms() {
     return this._api.getRooms()
   }
 
-  /** 단일 방 조회 (goal 필드 포함) */
+  /** Get single room (includes goal field) */
   getRoom(roomId) {
     return this._api.getRoom(roomId)
   }
 
   /**
-   * 방 생성
+   * Create a room
    * @param {{ name: string, roomType?: string, maxTurns?: number, memberIds?: string[] }} opts
    */
   createRoom(opts) {
     return this._api.createRoom(opts)
   }
 
-  /** 방 멤버 목록 조회 (stub — 서버 API 별도 작업 중) */
+  /** Get room member list (stub — server API pending) */
   getRoomMembers(roomId) {
     return this._api.getRoomMembers(roomId)
   }
 
-  /** 현재 봇의 프로필 조회 (tg_token, tg_group 포함) */
+  /** Get current bot profile (includes tg_token, tg_group) */
   getBotProfile() {
     return this._api.getBotProfile()
   }
 
   /**
-   * 현재 봇의 tg_token / tg_group 업데이트
+   * Update current bot's tg_token / tg_group
    * @param {{ tg_token?: string, tg_group?: string }} data
    */
   updateBotProfile(data) {
@@ -247,7 +247,7 @@ class RosudCall extends EventEmitter {
   }
 
   // ────────────────────────────────────────────────
-  // 내부 유틸
+  // Internal utilities
   // ────────────────────────────────────────────────
 
   _toMsg(m) {

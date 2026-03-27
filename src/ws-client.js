@@ -1,24 +1,24 @@
 'use strict'
 /**
- * src/ws-client.js — WebSocket 클라이언트
+ * src/ws-client.js — WebSocket client
  *
- * 버그 대응:
- *  #3  좀비 프로세스 → ping/pong 헬스체크 (30초) + 지수 백오프 재연결
- *  #6  자기 메시지 루프 → botId 자동 필터
+ * Bug fixes:
+ *  #3  zombie process → ping/pong health check (30s) + exponential backoff reconnect
+ *  #6  self-message loop → botId auto-filter
  *
- * 기능:
- *  - connect(roomId) — WS 연결 + subscribe ACK 대기
- *  - disconnect() — 정상 종료
- *  - send(roomId, content) — 메시지 발신
- *  - 지수 백오프 재연결: 1→2→4→8→...→60초
- *  - ping/pong 헬스체크: 30초마다 ping, 무응답 시 재연결
+ * Features:
+ *  - connect(roomId) — WS connection + subscribe ACK wait
+ *  - disconnect() — graceful shutdown
+ *  - send(roomId, content) — send message
+ *  - Exponential backoff reconnect: 1→2→4→8→...→60s
+ *  - ping/pong health check: ping every 30s, reconnect on no response
  */
 
 const WebSocket = require('ws')
 const EventEmitter = require('events')
 
-const PING_INTERVAL_MS        = 30_000   // 30초
-const SUBSCRIBE_ACK_TIMEOUT_MS = 15_000   // 재연결 후 subscribed ACK 대기 최대 15초
+const PING_INTERVAL_MS        = 30_000   // 30 seconds
+const SUBSCRIBE_ACK_TIMEOUT_MS = 15_000   // max 15s to wait for subscribed ACK after reconnect
 const MIN_RETRY_SEC            = 1
 const MAX_RETRY_SEC            = 60
 
@@ -29,7 +29,7 @@ class WsClient extends EventEmitter {
    * @param {string}   options.wsUrl
    * @param {string}   options.botId
    * @param {Set<string>} options.skipSenders
-   * @param {boolean}  [options.filterSelf=true]  true면 botId 발신 메시지 필터
+   * @param {boolean}  [options.filterSelf=true]  if true, filter messages sent by botId
    * @param {Function} options.onMessage    (rawMsg) => void
    * @param {Function} options.toMsg        (m) => msg
    */
@@ -53,7 +53,7 @@ class WsClient extends EventEmitter {
     this._connectReject  = null
   }
 
-  /** WS 연결 + subscribe (기본 10초 timeout) */
+  /** WS connect + subscribe (default 10s timeout) */
   async connect(roomId, { timeoutMs = 10_000 } = {}) {
     this._room    = roomId
     this._stopped = false
@@ -61,7 +61,7 @@ class WsClient extends EventEmitter {
       this._connectResolve = resolve
       this._connectReject  = reject
 
-      // 연결 timeout
+      // Connection timeout
       const timer = setTimeout(() => {
         if (this._connectReject) {
           this._connectReject(new Error(`WS connect timeout after ${timeoutMs}ms`))
@@ -70,7 +70,7 @@ class WsClient extends EventEmitter {
         }
       }, timeoutMs)
 
-      // resolve/reject 후 timer 정리
+      // Clear timer after resolve/reject
       const origResolve = resolve
       const origReject  = reject
       this._connectResolve = (...a) => { clearTimeout(timer); origResolve(...a) }
@@ -80,7 +80,7 @@ class WsClient extends EventEmitter {
     })
   }
 
-  /** WS 종료 */
+  /** Disconnect WS */
   async disconnect() {
     this._stopped = true
     this._clearPing()
@@ -92,7 +92,7 @@ class WsClient extends EventEmitter {
   }
 
   /**
-   * WS로 메시지 발신 (연결 필요).
+   * Send a message via WS (connection required).
    * @param {string} roomId
    * @param {string} content
    * @returns {Promise<{ ok: boolean }>}
@@ -110,13 +110,13 @@ class WsClient extends EventEmitter {
     })
   }
 
-  /** 현재 WS가 열려있는지 확인 */
+  /** Check if WS is currently open */
   isOpen() {
     return !!(this._ws && this._ws.readyState === WebSocket.OPEN)
   }
 
   /**
-   * 이미 연결된 WS에 추가 방 구독 요청.
+   * Subscribe to an additional room on an already-connected WS.
    * @param {string} roomId
    */
   subscribeRoom(roomId) {
@@ -124,7 +124,7 @@ class WsClient extends EventEmitter {
     this._ws.send(JSON.stringify({ type: 'subscribe', room_id: roomId }))
   }
 
-  // ── 내부 ────────────────────────────────────────
+  // ── internal ────────────────────────────────────────
 
   async _wsConnect() {
     if (this._stopped) return
@@ -138,8 +138,8 @@ class WsClient extends EventEmitter {
       ws.send(JSON.stringify({ type: 'subscribe', room_id: this._room }))
       this._resetPing()
 
-      // 재연결 케이스(최초 connect()와 달리 Promise 없음):
-      // 15초 내 subscribed ACK 미수신 시 좀비 방지를 위해 강제 재연결
+      // Reconnect case (no Promise unlike initial connect()):
+      // Force reconnect if no subscribed ACK within 15s to prevent zombie state
       if (!this._connectResolve) {
         this._subscribeAckTimer = setTimeout(() => {
           console.warn('[ws-client] subscribe ACK timeout — forcing reconnect')
@@ -149,13 +149,13 @@ class WsClient extends EventEmitter {
       }
     })
 
-    // BUG-2: 502/503 등 HTTP 레벨 오류 처리 — close 이벤트보다 먼저 잡아 5초 강제 대기 후 재연결
+    // BUG-2: Handle HTTP-level errors (502/503) — catch before close event, force 5s wait then reconnect
     ws.on('unexpected-response', (req, res) => {
       const statusCode = res.statusCode
       console.warn(`[ws-client] unexpected-response: HTTP ${statusCode}`)
       this._clearPing()
       this._clearSubscribeAckTimer()
-      res.resume()  // 응답 바디 소비 (메모리 누수 방지)
+      res.resume()  // Consume response body (prevent memory leak)
       ws.terminate()
 
       if (this._connectReject) {
@@ -166,11 +166,11 @@ class WsClient extends EventEmitter {
       }
 
       if (!this._stopped && (statusCode === 502 || statusCode === 503)) {
-        // 서버 재배포 중 과부하 방지: 최소 5초 대기 후 재연결
+        // Prevent overload during server redeployment: wait at least 5s before reconnect
         const MIN_DEPLOY_WAIT_MS = 5_000
         const retryDelaySec = Math.max(this._retryDelay, MIN_DEPLOY_WAIT_MS / 1000)
         this._retryDelay = Math.min(retryDelaySec * 2, MAX_RETRY_SEC)
-        console.warn(`[ws-client] 502/503 감지 — ${retryDelaySec}초 후 재연결`)
+        console.warn(`[ws-client] 502/503 detected — reconnecting in ${retryDelaySec}s`)
         this.emit('reconnecting', retryDelaySec)
         setTimeout(() => this._wsConnect(), retryDelaySec * 1000)
       } else if (!this._stopped) {
@@ -195,7 +195,7 @@ class WsClient extends EventEmitter {
         return
       }
 
-      // [보안] subscribe error 처리 — connect() Promise reject
+      // [security] handle subscribe error — reject connect() Promise
       if (msg.type === 'error') {
         const code = msg.code || 'UNKNOWN'
         const err  = new Error(`WS error [${code}]: ${msg.message || ''}`)
@@ -241,7 +241,7 @@ class WsClient extends EventEmitter {
     ws.on('close', (code, reason) => {
       this._clearPing()
       this._clearSubscribeAckTimer()
-      // 연결 중 소켓 닫히면 connect() Promise reject
+      // Reject connect() Promise if socket closes during connection
       if (this._connectReject) {
         this._connectReject(new Error(`WS closed before subscribe (code: ${code})`))
         this._connectResolve = null

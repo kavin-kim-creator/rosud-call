@@ -3,19 +3,19 @@
 /**
  * rosud-call CLI
  * 
- * 사용법:
+ * Usage:
  *   npx rosud-call listen --room <room-id> [options]
  * 
- * 환경변수:
- *   BOT_MESSAGING_API_KEY  (필수)
- *   BOT_MESSAGING_BOT_ID   (필수)
+ * Environment variables:
+ *   BOT_MESSAGING_API_KEY  (required)
+ *   BOT_MESSAGING_BOT_ID   (required)
  * 
- * 옵션:
- *   --room        방 UUID (필수)
- *   --respond-to  자동 응답할 발신자 bot-id (쉼표 구분, 기본값: 없음)
- *   --responder   응답 생성기 (기본값: openclaw)
- *   --tg-token    TG 토큰 (미러링용, 선택)
- *   --tg-group    TG 그룹 ID (선택)
+ * options:
+ *   --room        Room UUID (required)
+ *   --respond-to  Comma-separated bot-ids to auto-respond to (default: none)
+ *   --responder   Response generator (default: openclaw)
+ *   --tg-token    TG token (for mirroring, optional)
+ *   --tg-group    TG group ID (optional)
  */
 
 const args = process.argv.slice(2)
@@ -26,11 +26,11 @@ if (!cmd || cmd === '--help' || cmd === '-h') {
 rosud-call CLI v${require('../package.json').version}
 
 Commands:
-  listen    rosud-call 방 상시 구독 + 자동 응답 데몬
-  send      방에 메시지 1회 발송 후 즉시 종료
-  login     API 키 + 봇 ID 저장 (이후 환경변수 없이 사용 가능)
-  whoami    저장된 credentials 확인
-  logout    저장된 credentials 삭제
+  listen    rosud-call constant room subscribe + auto response daemon
+  send      send message once to room then exit
+  login     save API key + bot ID (can use without env vars after)
+  whoami    check saved credentials
+  logout    delete saved credentials
 
 Usage:
   npx rosud-call listen --room <room-id> [--respond-to <bot-id>]
@@ -39,28 +39,28 @@ Usage:
   npx rosud-call whoami
   npx rosud-call logout
 
-Environment variables (환경변수 우선, 없으면 login 저장값 사용):
-  BOT_MESSAGING_API_KEY   봇 API 키
-  BOT_MESSAGING_BOT_ID    봇 ID
+Environment variables (env vars take priority; falls back to login-saved values):
+  BOT_MESSAGING_API_KEY   Bot API key
+  BOT_MESSAGING_BOT_ID    bot ID
 
 Options:
-  --room <uuid>              구독할 방 UUID
-  --message <text>           (send 전용) 발송할 메시지 내용
-  --api-key <key>            (send 전용) API 키 직접 지정 (환경변수 대체)
-  --respond-to <ids>         자동 응답할 발신자 bot-id (쉼표 구분, 선택 — 생략 시 방 멤버 자동 응답)
-  --responder <cmd>          응답 생성 명령 (기본: "openclaw agent --agent main --message")
-  --responder-url <url>      OpenClaw Gateway HTTP URL (예: http://127.0.0.1:18789)
-                             지정 시 HTTP API 직접 호출 우선, 실패 시 subprocess fallback
-  --responder-timeout <ms>   응답 생성 타임아웃 (기본: 180000ms)
-  --tg-token <token>         텔레그램 미러링용 봇 토큰 (선택)
-  --tg-group <chat-id>       텔레그램 그룹 chat-id (선택)
+  --room <uuid>              room UUID to subscribe
+  --message <text>           (send only) message content to send
+  --api-key <key>            (send only) API key override (replaces env var)
+  --respond-to <ids>         Comma-separated bot-ids to auto-respond to (optional -- auto-discovers room members if omitted)
+  --responder <cmd>          Response generation command (default: "openclaw agent --agent main --message")
+  --responder-url <url>      OpenClaw Gateway HTTP URL (example: http://127.0.0.1:18789)
+                             if specified, HTTP API direct call priority, fallback to subprocess on failure
+  --responder-timeout <ms>   Response generation timeout (default: 180000ms)
+  --tg-token <token>         Telegram mirroring bot token (optional)
+  --tg-group <chat-id>       Telegram group chat-id (optional)
 
 Example:
   npx rosud-call login
   npx rosud-call listen --room <room-uuid>
-  npx rosud-call send --room <room-uuid> --message "안녕하세요"
+  npx rosud-call send --room <room-uuid> --message "hello"
 
-  # 또는 환경변수 직접 지정 (기존 방식, 하위 호환)
+  # or specify env vars directly (existing method, backward compatible)
   BOT_MESSAGING_API_KEY=xxx BOT_MESSAGING_BOT_ID=my-bot \\
     npx rosud-call listen \\
     --room <room-uuid>
@@ -69,35 +69,35 @@ Example:
 }
 
 if (cmd === 'login' || cmd === 'init') {
-  // 대화형 프롬프트로 API 키 + 봇 ID 입력받고, 연결 테스트 후 저장
+  // Interactive prompt for API key + bot ID, test connection, then save
   const { runLogin } = require('../src/auth')
   runLogin().catch((err) => {
-    console.error('[오류]', err.message || err)
+    console.error('[error]', err.message || err)
     process.exit(1)
   })
 
 } else if (cmd === 'whoami') {
-  // 저장된 credentials 출력 (API 키 마스킹)
+  // Print saved credentials (API key masked)
   const { runWhoami } = require('../src/auth')
   runWhoami()
 
 } else if (cmd === 'logout') {
-  // credentials 파일 삭제
+  // delete credentials file
   const { runLogout } = require('../src/auth')
   runLogout()
 
 } else if (cmd === 'send') {
-  // BUG-3: 일회성 메시지 발송 명령
+  // BUG-3: one-time message send command
   const opts = parseArgs(args.slice(1))
   const roomId  = opts.room
   const message = opts.message
   const apiKey  = opts.apiKey || process.env.BOT_MESSAGING_API_KEY
 
-  if (!roomId)  { console.error('--room 옵션 필요'); process.exit(1) }
-  if (!message) { console.error('--message 옵션 필요'); process.exit(1) }
+  if (!roomId)  { console.error('--room option required'); process.exit(1) }
+  if (!message) { console.error('--message option required'); process.exit(1) }
 
   ;(async () => {
-    // credentials 자동 로드 (환경변수 우선, 없으면 config.json)
+    // Auto-load credentials (env vars take priority, falls back to config.json)
     let resolvedApiKey = apiKey
     let botId = process.env.BOT_MESSAGING_BOT_ID
     if (!resolvedApiKey || !botId) {
@@ -109,8 +109,8 @@ if (cmd === 'login' || cmd === 'init') {
       }
     }
 
-    if (!resolvedApiKey) { console.error('BOT_MESSAGING_API_KEY 환경변수 또는 --api-key 필요'); process.exit(1) }
-    if (!botId)          { console.error('BOT_MESSAGING_BOT_ID 환경변수 필요'); process.exit(1) }
+    if (!resolvedApiKey) { console.error('BOT_MESSAGING_API_KEY env or --api-key required'); process.exit(1) }
+    if (!botId)          { console.error('BOT_MESSAGING_BOT_ID environment variable required'); process.exit(1) }
 
     const { WsClient } = require('../src/ws-client')
     const { RosudCall } = require('../src/index')
@@ -119,35 +119,35 @@ if (cmd === 'login' || cmd === 'init') {
     try {
       await rc.connect(roomId)
       await rc.send(roomId, message)
-      console.log(`[send] 발송 완료: ${message.slice(0, 80)}`)
+      console.log(`[send] sent: ${message.slice(0, 80)}`)
     } catch (err) {
-      console.error('[send 오류]', err.message || err)
+      console.error('[send error]', err.message || err)
       process.exit(1)
     } finally {
       await rc.disconnect()
     }
     process.exit(0)
   })().catch((err) => {
-    console.error('[오류]', err.message || err)
+    console.error('[error]', err.message || err)
     process.exit(1)
   })
 
 } else if (cmd === 'listen') {
-  // --no-daemon 플래그가 있으면 supervisor 없이 직접 실행 (내부 자식 프로세스용)
+  // if --no-daemon flag, run directly without supervisor (for internal child process)
   if (args.includes('--no-daemon')) {
     process.stdin.resume()
     require('../src/listener').run(parseArgs(args.slice(1).filter(a => a !== '--no-daemon')))
       .catch((err) => {
-        console.error('[리스너 오류]', err.message || err)
+        console.error('[listener error]', err.message || err)
         process.exit(1)
       })
   } else {
-    // Supervisor 모드 — 자기 자신을 자식 프로세스로 띄우고 죽으면 재시작
+    // Supervisor mode -- spawn self as child process and restart on exit
     runSupervisor(args.slice(1))
   }
 } else {
-  console.error(`알 수 없는 명령: ${cmd}`)
-  console.error(`사용 가능한 명령: listen, send, login, whoami, logout`)
+  console.error(`unknown command: ${cmd}`)
+  console.error(`available commands: listen, send, login, whoami, logout`)
   process.exit(1)
 }
 
@@ -176,14 +176,14 @@ function runSupervisor(listenArgs) {
   let child = null
   let stopping = false
 
-  console.log(`[supervisor] 시작 — 리스너 자동 재시작 모드 (max ${MAX_RESTARTS}회)`)
+  console.log(`[supervisor] starting — auto-restart mode (max ${MAX_RESTARTS} restarts)`)
 
-  // supervisor 자체는 절대 종료 안 되도록 이벤트 루프 유지
+  // keep event loop to prevent supervisor from ever terminating
   const keepAlive = setInterval(() => {}, 60_000)
 
-  // setsid로 supervisor를 OpenClaw exec 세션과 분리 (가능한 경우)
+  // separate supervisor from OpenClaw exec session with setsid (if possible)
   process.on('SIGHUP', () => {
-    console.log('[supervisor] SIGHUP 무시 — 계속 실행')
+    console.log('[supervisor] SIGHUP ignored -- continuing')
   })
 
   process.on('SIGTERM', () => {
@@ -202,7 +202,7 @@ function runSupervisor(listenArgs) {
     if (stopping) return
 
     const childArgs = ['listen', '--no-daemon', ...listenArgs]
-    console.log(`[supervisor] 리스너 시작 (재시작 ${restartCount}회차)`)
+    console.log(`[supervisor] starting listener (restart # ${restartCount})`)
 
     child = spawn(process.execPath, [scriptPath, ...childArgs], {
       env: process.env,
@@ -216,16 +216,16 @@ function runSupervisor(listenArgs) {
       if (stopping) return
 
       const uptime = ((Date.now() - startTime) / 1000).toFixed(1)
-      console.log(`[supervisor] 리스너 종료 (code=${code}, signal=${signal}, uptime=${uptime}s)`)
+      console.log(`[supervisor] listener terminated (code=${code}, signal=${signal}, uptime=${uptime}s)`)
 
       restartCount++
       if (restartCount > MAX_RESTARTS) {
-        console.error(`[supervisor] 재시작 한도(${MAX_RESTARTS}회) 초과 — supervisor 종료`)
+        console.error(`[supervisor] max restarts (${MAX_RESTARTS} restarts) exceeded — supervisor exit`)
         clearInterval(keepAlive)
         process.exit(1)
       }
 
-      // 빠르게 죽으면 delay 증가 (exponential backoff), 오래 살았으면 리셋
+      // if died quickly, increase delay (exponential backoff); if lived long, reset
       if (Date.now() - startTime < 10_000) {
         delayMs = Math.min(delayMs * 1.5, MAX_DELAY_MS)
       } else {
@@ -233,7 +233,7 @@ function runSupervisor(listenArgs) {
         restartCount = 0
       }
 
-      console.log(`[supervisor] ${(delayMs / 1000).toFixed(1)}초 후 재시작...`)
+      console.log(`[supervisor] ${(delayMs / 1000).toFixed(1)}s...`)
       setTimeout(spawnChild, delayMs)
     })
   }

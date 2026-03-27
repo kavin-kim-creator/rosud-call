@@ -1,16 +1,16 @@
 'use strict'
 /**
- * src/poller.js — REST 폴링 로직
+ * src/poller.js — REST polling logic
  *
- * 버그 대응:
- *  #1  limit=30 → 구 메시지 재전송   → 내부 limit=200 + ID 루프
- *  #2  after 커서 역방향             → after 파라미터 절대 사용 금지
+ * Bug fixes:
+ *  #1  limit=30 → old message re-delivery  → internal limit=200 + ID loop
+ *  #2  after cursor direction bug           → after parameter forbidden
  *
- * 동작:
- *  - limit=200 고정으로 최신 메시지 목록 조회
- *  - last_id 이후 메시지만 콜백 호출
- *  - last_id 없으면 최신 ID 저장 후 종료 (초기화 전용)
- *  - last_id가 조회 범위 초과 시 재전송 없이 최신 ID 갱신
+ * Behavior:
+ *  - Fetch latest messages with fixed limit=200
+ *  - Only invoke callback for messages after last_id
+ *  - If no last_id, save latest ID and exit (init only)
+ *  - If last_id is out of range, update to latest ID without re-delivery
  */
 
 const fs = require('fs')
@@ -23,9 +23,9 @@ class Poller {
    * @param {import('./client').ApiClient} options.client
    * @param {string}   options.botId
    * @param {Set<string>} options.skipSenders
-   * @param {boolean}  [options.filterSelf=true]  true면 botId 발신 메시지 필터
+   * @param {boolean}  [options.filterSelf=true]  if true, filter messages sent by botId
    * @param {Function} options.onMessage  (msg) => void
-   * @param {Function} [options.toMsg]    내부 메시지 변환 함수
+   * @param {Function} [options.toMsg]    internal message transform function
    */
   constructor({ client, botId, skipSenders, filterSelf = true, onMessage, toMsg }) {
     this.client      = client
@@ -37,7 +37,7 @@ class Poller {
   }
 
   /**
-   * 1회 폴링 실행.
+   * Run a single poll cycle.
    * @param {string} roomId
    * @param {object} [options]
    * @param {string} [options.stateFile='/tmp/rosud-call-state.json']
@@ -52,12 +52,12 @@ class Poller {
     if (!messages.length) return
 
     if (!lastId) {
-      // 최초 실행: 현재 최신 저장 후 종료 (과거 메시지 재전송 방지)
+      // First run: save current latest and exit (prevent re-delivery of old messages)
       this._saveState(stateFile, roomId, messages[messages.length - 1].id)
       return
     }
 
-    // last_id 이후 메시지 수집 (index 0 = oldest)
+    // Collect messages after last_id (index 0 = oldest)
     let found   = false
     const newMsgs = []
     for (const m of messages) {
@@ -66,7 +66,7 @@ class Poller {
     }
 
     if (!found) {
-      // last_id가 조회 범위 밖 → 재전송 금지, 최신 ID만 갱신
+      // last_id out of range → update to latest without re-delivery
       this._saveState(stateFile, roomId, messages[messages.length - 1].id)
       return
     }
@@ -82,7 +82,7 @@ class Poller {
     }
   }
 
-  // ── state 파일 ────────────────────────────────────
+  // ── state file ────────────────────────────────────
 
   _loadState(stateFile, roomId) {
     try { return JSON.parse(fs.readFileSync(stateFile, 'utf8'))[roomId] || '' }

@@ -1,9 +1,9 @@
 'use strict'
 /**
- * listener.js — rosud-call listen 명령어 실행기
+ * listener.js — rosud-call listen command runner
  *
- * WS 상시 구독 + 자동 응답 데몬.
- * 환경변수 또는 CLI 옵션으로 설정.
+ * Long-running WS subscription + auto-response daemon.
+ * Configured via environment variables or CLI options.
  */
 
 const { RosudCall } = require('./index')
@@ -13,12 +13,12 @@ const https = require('https')
 const http  = require('http')
 
 /**
- * 외부 명령어를 비동기로 실행하고 stdout+stderr 조합 문자열을 반환한다.
- * - 타임아웃 초과 시 프로세스를 kill하고 null 반환
- * - 프로세스 오류 시 null 반환
+ * Execute an external command asynchronously and return combined stdout+stderr.
+ * - Returns null on timeout (kills process)
+ * - Returns null on process error
  *
- * @param {string[]} cmdParts  실행할 명령어 배열 ([cmd, ...args])
- * @param {number}   timeoutMs 타임아웃 (ms), 기본 60초
+ * @param {string[]} cmdParts  Command array ([cmd, ...args])
+ * @param {number}   timeoutMs Timeout in ms, default 180s
  * @returns {Promise<string|null>}
  */
 function runCommand(cmdParts, timeoutMs = 180_000) {
@@ -26,14 +26,14 @@ function runCommand(cmdParts, timeoutMs = 180_000) {
     const child = spawn(cmdParts[0], cmdParts.slice(1))
     let stdout = ''
     let stderr = ''
-    let settled = false  // close/error/timeout 중 첫 번째만 처리
+    let settled = false  // only the first of close/error/timeout is handled
 
-    // 타임아웃: 지정 시간 초과 시 프로세스 강제 종료
+    // Timeout: force-kill process after specified duration
     const timer = setTimeout(() => {
       if (!settled) {
         settled = true
         child.kill()
-        console.warn(`[타임아웃] ${cmdParts[0]} 실행 ${timeoutMs}ms 초과 — 응답 포기`)
+        console.warn(`[timeout] ${cmdParts[0]} exceeded ${timeoutMs}ms — giving up`)
         resolve(null)
       }
     }, timeoutMs)
@@ -41,17 +41,17 @@ function runCommand(cmdParts, timeoutMs = 180_000) {
     child.stdout.on('data', (chunk) => { stdout += chunk })
     child.stderr.on('data', (chunk) => { stderr += chunk })
 
-    // 프로세스 시작 자체가 실패한 경우 (명령어 없음 등)
+    // Process failed to start (command not found, etc.)
     child.on('error', (err) => {
       if (!settled) {
         settled = true
         clearTimeout(timer)
-        console.error(`[오류] 프로세스 실행 실패: ${err.message}`)
+        console.error(`[error] process spawn failed: ${err.message}`)
         resolve(null)
       }
     })
 
-    // 정상 종료: stdout+stderr 반환
+    // Normal exit: return stdout+stderr
     child.on('close', () => {
       if (!settled) {
         settled = true
@@ -63,9 +63,9 @@ function runCommand(cmdParts, timeoutMs = 180_000) {
 }
 
 /**
- * 프로세스 출력에서 ANSI 이스케이프 코드와 노이즈 라인을 제거한다.
- * @param {string} raw  원본 출력 문자열
- * @returns {string}    정제된 출력
+ * Strip ANSI escape codes and noise lines from process output.
+ * @param {string} raw  Raw output string
+ * @returns {string}    Cleaned output
  */
 function cleanOutput(raw) {
   return raw
@@ -77,12 +77,12 @@ function cleanOutput(raw) {
 }
 
 /**
- * OpenClaw Gateway HTTP API로 프롬프트 전송 후 응답 수신.
- * 연결 실패 / 비정상 상태코드 시 null 반환 → subprocess fallback 트리거.
+ * Send a prompt to OpenClaw Gateway HTTP API and receive a response.
+ * Returns null on connection failure or non-2xx status -> triggers subprocess fallback.
  *
- * @param {string} prompt      전송할 프롬프트
- * @param {string} gatewayUrl  Gateway HTTP URL (예: http://127.0.0.1:18789)
- * @param {number} timeoutMs   타임아웃 (ms)
+ * @param {string} prompt      Prompt to send
+ * @param {string} gatewayUrl  Gateway HTTP URL (e.g. http://127.0.0.1:18789)
+ * @param {number} timeoutMs   Timeout in ms
  * @returns {Promise<string|null>}
  */
 function callGatewayHttp(prompt, gatewayUrl, timeoutMs = 180_000) {
@@ -107,7 +107,7 @@ function callGatewayHttp(prompt, gatewayUrl, timeoutMs = 180_000) {
         if (!settled) {
           settled = true
           req.destroy()
-          console.warn(`[Gateway HTTP] 타임아웃 ${timeoutMs}ms 초과 — subprocess fallback`)
+          console.warn(`[Gateway HTTP] timeout ${timeoutMs}ms — subprocess fallback`)
           resolve(null)
         }
       }, timeoutMs)
@@ -127,7 +127,7 @@ function callGatewayHttp(prompt, gatewayUrl, timeoutMs = 180_000) {
                 resolve(data)
               }
             } else {
-              console.warn(`[Gateway HTTP] 상태 코드 ${res.statusCode} — subprocess fallback`)
+              console.warn(`[Gateway HTTP] status ${res.statusCode} — subprocess fallback`)
               resolve(null)
             }
           }
@@ -138,7 +138,7 @@ function callGatewayHttp(prompt, gatewayUrl, timeoutMs = 180_000) {
         if (!settled) {
           settled = true
           clearTimeout(timer)
-          console.warn(`[Gateway HTTP] 연결 실패: ${err.message} — subprocess fallback`)
+          console.warn(`[Gateway HTTP] connection failed: ${err.message} — subprocess fallback`)
           resolve(null)
         }
       })
@@ -146,46 +146,46 @@ function callGatewayHttp(prompt, gatewayUrl, timeoutMs = 180_000) {
       req.write(body)
       req.end()
     } catch (err) {
-      console.warn(`[Gateway HTTP] URL 파싱 실패: ${err.message} — subprocess fallback`)
+      console.warn(`[Gateway HTTP] URL parse failed: ${err.message} — subprocess fallback`)
       resolve(null)
     }
   })
 }
 
 /**
- * openclaw CLI로 응답 생성. (비동기)
- * opts.gatewayUrl 지정 시 HTTP API 먼저 시도, 실패 시 subprocess fallback.
+ * Generate a response via openclaw CLI. (async)
+ * If opts.gatewayUrl is set, tries HTTP API first, falls back to subprocess on failure.
  *
- * @param {string}      sender       발신자 ID
- * @param {string}      content      수신 메시지 내용
- * @param {Array}       history      이전 대화 내역 [{sender, content}]
- * @param {string|null} responderCmd 사용할 CLI 명령어 (없으면 기본값)
- * @param {string|null} goal         방 goal (있으면 프롬프트에 주입)
- * @param {object}      opts         옵션 { gatewayUrl, timeoutMs }
+ * @param {string}      sender       Sender ID
+ * @param {string}      content      Received message content
+ * @param {Array}       history      Previous conversation [{sender, content}]
+ * @param {string|null} responderCmd CLI command to use (defaults if null)
+ * @param {string|null} goal         Room goal (injected into prompt if set)
+ * @param {object}      opts         Options { gatewayUrl, timeoutMs }
  * @returns {Promise<string|null>}
  */
 async function getOpenclawResponse(sender, content, history, responderCmd, goal, opts = {}) {
-  // 이전 대화 내역 포함 (현재 메시지 제외한 최근 N개)
+  // Include conversation history (recent N messages excluding current)
   let historySection = ''
   if (history && history.length > 1) {
-    const prev = history.slice(0, -1).slice(-8)  // 최근 8개 이전 메시지
-    historySection = '\n\n[이전 대화]\n' + prev.map(m => `${m.sender}: ${m.content}`).join('\n') + '\n[/이전 대화]\n'
+    const prev = history.slice(0, -1).slice(-8)  // last 8 previous messages
+    historySection = '\n\n[Previous Conversation]\n' + prev.map(m => `${m.sender}: ${m.content}`).join('\n') + '\n[/Previous Conversation]\n'
   }
 
-  let prompt = `봇 간 메시지 대화야. 자연스럽게 이어가줘.${historySection}\n발신: ${sender}\n내용: ${content}\n\n이전 대화 흐름을 이어서 자연스럽게 응답해줘.`
+  let prompt = `This is a bot-to-bot message conversation. Continue naturally.${historySection}\nFrom: ${sender}\nContent: ${content}\n\nContinue naturally following the conversation history.`
   if (goal) {
-    prompt += `\n\n목표: ${goal}\n목표 달성 여부를 판단하고 달성됐으면 반드시 [DONE]을 붙여라.`
+    prompt += `\n\nGoal: ${goal}\nDetermine if the goal has been achieved; if so, append [DONE].`
   } else {
-    prompt += ` 대화가 끝났으면 마지막에 [DONE]을 붙여줘.`
+    prompt += ` If the conversation is complete, append [DONE] at the end.`
   }
 
   const timeoutMs = opts.timeoutMs || 180_000
 
-  // Gateway HTTP API 우선 시도
+  // Try Gateway HTTP API first
   if (opts.gatewayUrl) {
     const resp = await callGatewayHttp(prompt, opts.gatewayUrl, timeoutMs)
     if (resp !== null) return cleanOutput(String(resp)) || null
-    // null이면 subprocess fallback
+    // null -> subprocess fallback
   }
 
   const cmdParts = (responderCmd || 'openclaw agent --agent main --message').split(' ')
@@ -196,15 +196,15 @@ async function getOpenclawResponse(sender, content, history, responderCmd, goal,
 }
 
 /**
- * Conversation Judge — 3턴마다 대화 계속 여부 판단.
- * openclaw에게 yes/no 판단 요청.
- * opts.gatewayUrl 지정 시 HTTP API 우선 시도, 실패 시 subprocess fallback.
+ * Conversation Judge -- decides whether to continue conversation every 3 turns.
+ * Asks openclaw for a yes/no decision.
+ * If opts.gatewayUrl is set, tries HTTP API first, falls back to subprocess on failure.
  *
- * @param {Array<{sender: string, content: string}>} history  최근 대화 내역
+ * @param {Array<{sender: string, content: string}>} history  Recent conversation history
  * @param {string|null} goal
  * @param {string|null} responderCmd
- * @param {object}      opts  옵션 { gatewayUrl, timeoutMs }
- * @returns {Promise<boolean>}  true = 계속, false = 종료
+ * @param {object}      opts  Options { gatewayUrl, timeoutMs }
+ * @returns {Promise<boolean>}  true = continue, false = stop
  */
 async function judgeConversation(history, goal, responderCmd, opts = {}) {
   const historyStr = history
@@ -212,33 +212,33 @@ async function judgeConversation(history, goal, responderCmd, opts = {}) {
     .join('\n')
 
   const prompt = goal
-    ? `아래 대화를 분석해서 "${goal}" 목표가 달성됐는지 판단해.\n달성됐으면 "no" (대화 불필요), 아직이면 "yes" (대화 계속 필요).\n반드시 yes 또는 no 한 단어만 답해라.\n\n대화:\n${historyStr}`
-    : `아래 대화를 분석해서 계속 진행이 필요한지 판단해.\n계속 필요하면 "yes", 대화가 끝났으면 "no".\n반드시 yes 또는 no 한 단어만 답해라.\n\n대화:\n${historyStr}`
+    ? `Analyze the conversation below and determine whether the goal "${goal}" has been achieved.\nIf achieved, answer "no" (no more conversation needed); if not yet, answer "yes" (continue).\nRespond with exactly one word: yes or no.\n\nConversation:\n${historyStr}`
+    : `Analyze the conversation below and determine whether it needs to continue.\nIf it should continue, answer "yes"; if it is complete, answer "no".\nRespond with exactly one word: yes or no.\n\nConversation:\n${historyStr}`
 
-  const judgeTimeout = 30_000  // judge는 30초 고정
+  const judgeTimeout = 30_000  // judge fixed at 30s
 
-  // Gateway HTTP API 우선 시도
+  // Try Gateway HTTP API first
   if (opts.gatewayUrl) {
     const resp = await callGatewayHttp(prompt, opts.gatewayUrl, judgeTimeout)
     if (resp !== null) {
       const clean = cleanOutput(String(resp)).replace(/\n/g, ' ').toLowerCase()
       return !(/\bno\b/.test(clean))
     }
-    // null이면 subprocess fallback
+    // null -> subprocess fallback
   }
 
   const cmdParts = (responderCmd || 'openclaw agent --agent main --message').split(' ')
-  // 비동기 실행 (타임아웃 30초)
+  // async execution (30s timeout)
   const raw = await runCommand([...cmdParts, prompt], judgeTimeout)
-  if (raw === null) return true  // 판단 실패 시 기본 계속 진행
+  if (raw === null) return true  // default to continue on judgment failure
 
   const clean = cleanOutput(raw).replace(/\n/g, ' ').toLowerCase()
 
-  // "no"가 포함되면 종료 (목표 달성 or 대화 불필요)
+  // Stop if "no" present (goal achieved or conversation unnecessary)
   return !(/\bno\b/.test(clean))
 }
 
-/** TG 메시지 전송 (선택 기능) */
+/** Send a Telegram message (optional feature) */
 function sendTg(token, chatId, text) {
   if (!token || !chatId) return
   const body = JSON.stringify({ chat_id: chatId, text: text.slice(0, 4000) })
@@ -254,22 +254,22 @@ function sendTg(token, chatId, text) {
 }
 
 /**
- * listen 데몬 실행.
- * @param {object} opts  CLI 파싱 결과
+ * Run the listen daemon.
+ * @param {object} opts  Parsed CLI options
  */
 async function run(opts) {
-  // 환경변수 없으면 ~/.config/rosud-call/config.json 자동 로드 (환경변수 우선)
+  // Auto-load ~/.config/rosud-call/config.json if env vars not set (env vars take priority)
   if (!process.env.BOT_MESSAGING_API_KEY || !process.env.BOT_MESSAGING_BOT_ID) {
     const { resolveCredentials } = require('./auth')
     const creds = resolveCredentials()
     if (creds.source === 'config') {
       if (!process.env.BOT_MESSAGING_API_KEY) {
         process.env.BOT_MESSAGING_API_KEY = creds.apiKey
-        console.log('[인증] config.json에서 API 키 로드')
+        console.log('[auth] loaded API key from config.json')
       }
       if (!process.env.BOT_MESSAGING_BOT_ID) {
         process.env.BOT_MESSAGING_BOT_ID = creds.botId
-        console.log('[인증] config.json에서 봇 ID 로드')
+        console.log('[auth] loaded bot ID from config.json')
       }
     }
   }
@@ -281,8 +281,8 @@ async function run(opts) {
   let tgGroup = opts.tgGroup  || process.env.TG_GROUP_ID || ''
   const respCmd         = opts.responder || null
   const responderTimeout = opts.responderTimeout ? parseInt(opts.responderTimeout) : 180_000
-  // responderUrl 옵션은 더 이상 사용하지 않음 (Gateway /api/agent 미존재)
-  // 응답 생성은 항상 subprocess(openclaw agent) 방식 사용
+  // responderUrl option is no longer used (Gateway /api/agent endpoint does not exist)
+  // Response generation always uses subprocess (openclaw agent)
   const respOpts        = { timeoutMs: responderTimeout }
 
   const respondTo = new Set(
@@ -291,14 +291,14 @@ async function run(opts) {
       : []
   )
 
-  // 루프 방지: 연속 응답 카운터 + 중단 플래그
+  // Loop prevention: consecutive response counter + stop flag
   const MAX_CONSECUTIVE = opts.maxTurns ? parseInt(opts.maxTurns) : 10
-  const MAX_QUEUE_SIZE  = 3  // 대기 큐 최대 크기 (초과 시 드랍)
+  const MAX_QUEUE_SIZE  = 3  // max pending queue size (drop on overflow)
   const JUDGE_EVERY = 3
   const MAX_HISTORY = 10
 
-  // ── 방(room)당 독립 상태 관리 ────────────────────────────────
-  // roomId → { loopStopped, consecutiveCount, turnCount, history, queue, isProcessing }
+  // -- Per-room independent state management --
+  // roomId -> { loopStopped, consecutiveCount, turnCount, history, queue, isProcessing }
   const roomStates = new Map()
 
   function getOrCreateRoomState(rid) {
@@ -315,10 +315,10 @@ async function run(opts) {
     return roomStates.get(rid)
   }
 
-  // ── 동시성 제어 (방별 독립 큐) ──────────────────────────────
-  // openclaw 응답 생성이 비동기(~10-30초)이므로 동시에 여러 메시지가
-  // 도착해도 응답 생성 작업은 순서대로 한 번에 하나씩만 실행한다.
-  // 큐에 쌓인 작업이 없으면 즉시 처리, 있으면 이전 작업 완료 후 실행.
+  // -- Concurrency control (per-room independent queue) --
+  // openclaw response generation is async (~10-30s), so even if multiple messages
+  // arrive simultaneously, response tasks are executed serially one at a time.
+  // Tasks are processed immediately if queue is empty, otherwise after the previous task.
   async function processQueue(rid) {
     const state = getOrCreateRoomState(rid)
     if (state.isProcessing || state.queue.length === 0) return
@@ -328,100 +328,99 @@ async function run(opts) {
       await task()
     } finally {
       state.isProcessing = false
-      // 큐에 남은 작업 연속 처리 (setImmediate로 콜스택 해소)
+      // Process remaining tasks (use setImmediate to unwind call stack)
       setImmediate(() => processQueue(rid))
     }
   }
 
-  if (!apiKey) { console.error('BOT_MESSAGING_API_KEY 환경변수 필요'); process.exit(1) }
-  if (!botId)  { console.error('BOT_MESSAGING_BOT_ID 환경변수 필요'); process.exit(1) }
-  if (!roomId) { console.error('--room 옵션 필요'); process.exit(1) }
+  if (!apiKey) { console.error('BOT_MESSAGING_API_KEY env var required'); process.exit(1) }
+  if (!botId)  { console.error('BOT_MESSAGING_BOT_ID env var required'); process.exit(1) }
+  if (!roomId) { console.error('--room option required'); process.exit(1) }
 
-  console.log(`[rosud-call listen] 시작`)
+  console.log(`[rosud-call listen] starting`)
   console.log(`  botId        : ${botId}`)
   console.log(`  room         : ${roomId}`)
-  console.log(`  respondTo    : ${[...respondTo].join(', ') || '(없음 — 미러링만)'}`)
+  console.log(`  respondTo    : ${[...respondTo].join(', ') || '(none -- mirror only)'}`)
   console.log(`  maxTurns     : ${MAX_CONSECUTIVE}`)
   console.log(`  timeout      : ${responderTimeout}ms`)
-  if (responderUrl) console.log(`  responderUrl : ${responderUrl}`)
 
   const rc = new RosudCall({ apiKey, botId, filterSelf: true })
 
-  // tgToken/tgGroup 하나라도 미설정 시 서버 프로필에서 자동 조회
+  // Auto-fetch TG config from server profile if tgToken or tgGroup is not set
   if (!tgToken || !tgGroup) {
-    // BUG-4 수정: getBotProfile() 실패 시 3초 후 1회 재시도
+    // BUG-4 fix: retry once after 3s on getBotProfile() failure
     const fetchProfile = async () => {
       const profile = await rc.getBotProfile()
       if (profile?.tg_token) {
         tgToken = profile.tg_token
-        console.log(`  [TG] 서버 프로필에서 tg_token 로드 완료`)
+        console.log(`  [TG] loaded tg_token from server profile`)
       }
       if (profile?.tg_group) {
         tgGroup = profile.tg_group
-        console.log(`  [TG] 서버 프로필에서 tg_group 로드 완료`)
+        console.log(`  [TG] loaded tg_group from server profile`)
       }
       if (!profile?.tg_token && !profile?.tg_group) {
-        console.log('  [TG] 서버에도 TG 설정 없음')
+        console.log('  [TG] no TG config on server either')
       }
     }
 
     try {
       await fetchProfile()
     } catch (err) {
-      console.warn(`[경고] 봇 프로필 조회 실패 (${err.message}) — 3초 후 재시도`)
+      console.warn(`[warning] bot profile fetch failed (${err.message}) -- retrying in 3s`)
       await new Promise(r => setTimeout(r, 3000))
       try {
         await fetchProfile()
       } catch (err2) {
-        console.warn(`[경고] 봇 프로필 재시도도 실패 (${err2.message})`)
+        console.warn(`[warning] bot profile retry also failed (${err2.message})`)
       }
     }
 
     if (!tgToken) {
-      console.log('  [TG] TG 미러링 비활성 (토큰 없음)')
+      console.log('  [TG] TG mirroring disabled (no token)')
     }
   }
 
-  // 방 goal 조회 (없으면 null)
+  // Fetch room goal (null if not set)
   let roomGoal = null
   try {
     const roomInfo = await rc.getRoom(roomId)
     roomGoal = roomInfo?.goal || roomInfo?.room?.goal || null
     if (roomGoal) console.log(`  goal      : ${roomGoal}`)
   } catch {
-    // goal 조회 실패는 무시
+    // Ignore goal fetch failure
   }
 
-  // --respond-to 미지정 시 방 멤버 자동 조회 → respondTo에 자동 추가
+  // Auto-discover room members if --respond-to is not specified -> add to respondTo
   if (respondTo.size === 0) {
     try {
       const raw = await rc.getRoomMembers(roomId)
       const list = Array.isArray(raw) ? raw : (raw?.members || raw?.memberIds || [])
       list.filter(id => id && id !== botId).forEach(id => respondTo.add(id))
       if (respondTo.size > 0) {
-        console.log(`  [자동 응답] 방 멤버 조회 성공: ${[...respondTo].join(", ")}`)
+        console.log(`  [auto-respond] room members found: ${[...respondTo].join(", ")}`)
       } else {
-        console.log("  [자동 응답] 응답 대상 없음 — 미러링 모드로 동작")
+        console.log("  [auto-respond] no respond targets -- mirror mode")
       }
     } catch (err) {
-      console.warn(`[경고] 방 멤버 조회 실패 — 미러링 모드로 폴백 (${err.message})`)
+      console.warn(`[warning] room member fetch failed -- falling back to mirror mode (${err.message})`)
     }
   }
 
-  rc.on('connected',    () => console.log('[연결] WS 연결 성공'))
-  rc.on('reconnecting', s  => console.log(`[재연결] ${s}초 후...`))
-  rc.on('error',        e  => console.error('[오류]', e.message))
+  rc.on('connected',    () => console.log('[connected] WS connected'))
+  rc.on('reconnecting', s  => console.log(`[reconnecting] in ${s}s...`))
+  rc.on('error',        e  => console.error('[error]', e.message))
 
   rc.on('room_invite', (e) => {
-    console.log(`[초대] 새 방 초대: ${e.roomName} (${e.roomId}) from ${e.invitedBy}`)
-    // 새 방 fresh state 생성 (loopStopped = false 보장)
+    console.log(`[invite] new room invite: ${e.roomName} (${e.roomId}) from ${e.invitedBy}`)
+    // Create fresh state for new room (ensure loopStopped = false)
     const newState = getOrCreateRoomState(e.roomId)
     newState.loopStopped = false
     rc.subscribe(e.roomId)
     if (tgToken && tgGroup) {
-      sendTg(tgToken, tgGroup, `📨 새 방 초대: ${e.roomName} (${e.roomId})\n초대자: ${e.invitedBy}`)
+      sendTg(tgToken, tgGroup, `new room invite: ${e.roomName} (${e.roomId})\nfrom: ${e.invitedBy}`)
     }
-    // respond-to 설정이 있으면 새 방에서도 자동 응답이 동작하도록 invitedBy를 respondTo에 추가
+    // Add invitedBy to respondTo so auto-response works in new room
     if (respondTo.size > 0 && e.invitedBy) {
       respondTo.add(e.invitedBy)
     }
@@ -429,22 +428,22 @@ async function run(opts) {
 
   rc.on('room_closed', (e) => {
     const closedRoomId = e.roomId || roomId
-    console.log(`[방 종료] ${e.reason} (${e.turnCount}/${e.maxTurns}턴) — 방: ${closedRoomId.slice(0, 8)}`)
+    console.log(`[room_closed] ${e.reason} (${e.turnCount}/${e.maxTurns} turns) -- room: ${closedRoomId.slice(0, 8)}`)
     const state = getOrCreateRoomState(closedRoomId)
     state.loopStopped = true
     if (tgToken && tgGroup) {
-      sendTg(tgToken, tgGroup, `🔒 봇 대화 종료\n방: ${closedRoomId.slice(0, 8)}\n이유: ${e.reason} (${e.turnCount}턴)`)
+      sendTg(tgToken, tgGroup, `bot conversation ended\nroom: ${closedRoomId.slice(0, 8)}\nreason: ${e.reason} (${e.turnCount} turns)`)
     }
-    // process.exit(0) 제거 — 리스너 데몬은 방 종료 후에도 계속 실행 유지
-    // rc.disconnect() 제거 — 5초 후 동일 방 재구독 시도
-    console.log(`[리스너] 방 종료 — 5초 후 재연결 시도...`)
+    // Removed process.exit(0) -- listener daemon continues after room close
+    // Removed rc.disconnect() -- attempt to resubscribe same room after 5s
+    console.log(`[listener] room closed -- retrying in 5s...`)
     setTimeout(async () => {
       try {
         await rc.subscribe(closedRoomId)
         state.loopStopped = false
-        console.log(`[재연결] 방 ${closedRoomId.slice(0, 8)} 재구독 성공`)
+        console.log(`[reconnected] resubscribed to room ${closedRoomId.slice(0, 8)}`)
       } catch (err) {
-        console.warn(`[재연결 실패] ${err.message} — 새 초대를 기다립니다`)
+        console.warn(`[reconnect failed] ${err.message} -- waiting for new invite`)
       }
     }, 5000)
   })
@@ -455,71 +454,71 @@ async function run(opts) {
     const state = getOrCreateRoomState(msgRoomId)
     const ts = (createdAt || '').slice(11, 16)
 
-    // BUG-1: 중복 메시지 방지 — createdAt + senderId + content 앞 60자로 키 생성
-    // createdAt 포함으로 과거 동일 내용 메시지와 구분 (오탐 방지)
+    // BUG-1: Dedup -- key from createdAt + senderId + first 60 chars of content
+    // Including createdAt avoids false positives from identical old messages
     const createdAtKey = (createdAt || '').slice(0, 19) || String(Date.now())
     const dedupKey = `${createdAtKey}:${senderId}:${content.slice(0, 60)}`
     if (isDuplicate(dedupKey)) {
-      console.log(`[dedup] 중복 메시지 스킵: ${senderId}: ${content.slice(0, 40)}`)
+      console.log(`[dedup] duplicate message skipped: ${senderId}: ${content.slice(0, 40)}`)
       return
     }
     markSent(dedupKey)
 
-    console.log(`[수신] ${senderId}: ${content.slice(0, 80)}`)
+    console.log(`[recv] ${senderId}: ${content.slice(0, 80)}`)
 
-    // 대화 이력 추가
+    // Add to conversation history
     state.history.push({ sender: senderId, content })
     if (state.history.length > MAX_HISTORY) state.history.shift()
 
-    // TG 미러링 — 본인이 보낸 메시지는 제외, 타 봇 메시지만 미러링
+    // TG mirroring -- skip own messages, only mirror other bots
     if (tgToken && tgGroup && senderId !== botId) {
-      sendTg(tgToken, tgGroup, `💬 봇 대화\n${senderId}: ${content.slice(0, 300)}\n(${ts} UTC)`)
+      sendTg(tgToken, tgGroup, `bot conversation\n${senderId}: ${content.slice(0, 300)}\n(${ts} UTC)`)
     }
 
-    // [ABORT] 수신 시만 자동응답 영구 중단
-    // [DONE]은 "대화 종료 신호"이지 "리스너 중단 신호"가 아님
-    // → [DONE] 포함 메시지는 스킵만 하고 loopStopped 건드리지 않음
+    // [ABORT] permanently stops auto-response
+    // [DONE] is a "conversation end signal", not a "listener stop signal"
+    // -> Messages containing [DONE] are skipped only; loopStopped is not changed
     if (/\[ABORT\]/i.test(content)) {
       if (!state.loopStopped) {
         state.loopStopped = true
         state.consecutiveCount = 0
-        console.log('[중단] ABORT 감지 — 자동응답 영구 중단')
+        console.log('[stopped] ABORT detected -- auto-response permanently disabled')
       }
       return
     }
-    // [DONE]은 응답하지 않고 스킵 (loopStopped 변경 없음)
+    // [DONE] -- skip without responding (loopStopped unchanged)
     if (/\[DONE\]/i.test(content)) {
-      console.log('[스킵] DONE 감지 — 이번 메시지 응답 생략 (리스너 유지)')
+      console.log('[skip] DONE detected -- skipping response for this message (listener continues)')
       return
     }
 
-    // 자동 응답
+    // Auto-response
     const SKIP_PATTERNS = /^(HEARTBEAT_OK|completed|ok)\b/i
     if (respondTo.has(senderId) && !state.loopStopped && !SKIP_PATTERNS.test(content.trim())) {
-      // 큐 크기 초과 시 드랍 (처리 지연 시 과부하 방지)
+      // Drop if queue is full (prevent overload on delayed processing)
       if (state.queue.length >= MAX_QUEUE_SIZE) {
-        console.warn(`[큐 드랍] 큐 크기(${MAX_QUEUE_SIZE}) 초과 — 메시지 드랍: ${content.slice(0, 40)}`)
+        console.warn(`[queue drop] queue size (${MAX_QUEUE_SIZE}) exceeded -- dropping: ${content.slice(0, 40)}`)
         return
       }
 
-      // 응답 생성 작업을 큐에 추가하여 순서대로 직렬 처리
-      // (openclaw 응답 생성 중 새 메시지가 와도 WS 수신은 계속됨)
+      // Add response task to queue for serial processing
+      // (WS continues receiving messages while openclaw generates a response)
       state.queue.push(async () => {
-        // 큐 실행 시점에 다시 loopStopped 체크 (큐 대기 중 상태 변경 가능)
+        // Re-check loopStopped at queue execution time (may have changed while waiting)
         if (state.loopStopped) return
 
-        // 연속 응답 횟수 초과 시 자동 중단
+        // Stop if consecutive response limit exceeded
         if (state.consecutiveCount >= MAX_CONSECUTIVE) {
           if (!state.loopStopped) {
             state.loopStopped = true
-            console.warn(`[루프 방지] ${MAX_CONSECUTIVE}회 연속 응답 초과 — 자동응답 중단`)
-            await rc.send(msgRoomId, `[DONE] 최대 응답 횟수(${MAX_CONSECUTIVE}회) 초과. 대화 종료.`)
+            console.warn(`[loop guard] ${MAX_CONSECUTIVE} consecutive responses exceeded -- stopping`)
+            await rc.send(msgRoomId, `[DONE] max responses (${MAX_CONSECUTIVE}) reached. Ending conversation.`)
           }
           return
         }
 
-        console.log(`[응답 생성] ${senderId} → (${state.consecutiveCount + 1}/${MAX_CONSECUTIVE})`)
-        // await로 비동기 응답 생성 — WS 이벤트 루프는 블로킹 없이 유지됨
+        console.log(`[generating] ${senderId} -> (${state.consecutiveCount + 1}/${MAX_CONSECUTIVE})`)
+        // await async response generation -- WS event loop continues unblocked
         const response = await getOpenclawResponse(senderId, content, state.history, respCmd, roomGoal, respOpts)
         if (response) {
           state.consecutiveCount++
@@ -528,42 +527,42 @@ async function run(opts) {
           if (state.history.length > MAX_HISTORY) state.history.shift()
 
           await rc.send(msgRoomId, response)
-          console.log(`[발신] ${response.slice(0, 80)}`)
+          console.log(`[sent] ${response.slice(0, 80)}`)
 
-          // 내가 보낸 응답에 [DONE] 포함 시 중단
+          // Stop if our response contains [DONE]
           if (/\[DONE\]/i.test(response)) {
             state.loopStopped = true
             state.consecutiveCount = 0
-            console.log('[완료] 응답에 [DONE] 포함 — 자동응답 중단')
+            console.log('[done] response contains [DONE] -- stopping auto-response')
             return
           }
 
-          // Conversation Judge: 3턴마다 대화 계속 여부 판단
+          // Conversation Judge: check every 3 turns
           if (state.turnCount % JUDGE_EVERY === 0) {
-            console.log(`[Judge] ${state.turnCount}턴 도달 — 대화 계속 여부 판단 중...`)
+            console.log(`[judge] turn ${state.turnCount} reached -- checking whether to continue...`)
             const shouldContinue = await judgeConversation(state.history, roomGoal, respCmd, respOpts)
             if (!shouldContinue) {
               state.loopStopped = true
               state.consecutiveCount = 0
-              console.log('[Judge] 대화 종료 판단 — [DONE] 발송')
-              await rc.send(msgRoomId, '[DONE] 대화 목표 달성. 종료합니다.')
+              console.log('[judge] decided to end -- sending [DONE]')
+              await rc.send(msgRoomId, '[DONE] Conversation goal achieved. Ending.')
             } else {
-              console.log('[Judge] 대화 계속 판단')
+              console.log('[judge] decided to continue')
             }
           }
         } else {
-          console.warn('[응답 실패] 이번 턴 스킵')
+          console.warn('[response failed] skipping this turn')
         }
       })
 
-      processQueue(msgRoomId)  // 큐에 작업 추가 후 처리 시작 (이미 실행 중이면 no-op)
+      processQueue(msgRoomId)  // Start processing queue (no-op if already running)
     }
   })
 
   await rc.connect(roomId)
 
-  // 이벤트 루프 강제 유지 — setInterval로 Node.js가 자동 종료되지 않도록 고정
-  // process.stdin.resume()은 stdin이 닫힌 환경(nohup, 백그라운드)에서 효과 없음
+  // Keep event loop alive -- setInterval prevents Node.js from auto-exiting
+  // process.stdin.resume() is ineffective in nohup/background environments
   setInterval(() => {}, 60_000)
 }
 

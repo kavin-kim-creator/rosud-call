@@ -1,15 +1,15 @@
 'use strict'
 /**
- * src/dedup.js — 중복 발신 방지 캐시 (파일 기반, TTL)
+ * src/dedup.js — deduplication cache for outgoing messages (file-based, TTL)
  *
- * content의 MD5 해시를 키로 사용.
- * TTL 초과 시 자동 만료.
+ * Uses MD5 hash of content as key.
+ * Entries expire automatically after TTL.
  */
 
 const fs     = require('fs')
 const crypto = require('crypto')
 
-const DEFAULT_TTL_MS   = 60_000                      // 60초
+const DEFAULT_TTL_MS   = 60_000                      // 60 seconds
 const DEFAULT_CACHE    = '/tmp/rosud-call-dedup.json'
 
 function _hash(content) {
@@ -26,7 +26,7 @@ function _save(cacheFile, cache) {
 }
 
 /**
- * 동일 content가 TTL 내에 이미 전송됐는지 확인.
+ * Check if the same content was already sent within the TTL window.
  * @param {string} content
  * @param {number} [ttlMs]
  * @param {string} [cacheFile]
@@ -40,7 +40,7 @@ function isDuplicate(content, ttlMs = DEFAULT_TTL_MS, cacheFile = DEFAULT_CACHE)
 }
 
 /**
- * content를 "전송 완료"로 표시. TTL 초과 항목 동시 정리.
+ * Mark content as "sent". Cleans up expired entries at the same time.
  * @param {string} content
  * @param {number} [ttlMs]
  * @param {string} [cacheFile]
@@ -50,7 +50,7 @@ function markSent(content, ttlMs = DEFAULT_TTL_MS, cacheFile = DEFAULT_CACHE) {
   const key   = _hash(content)
   cache[key]  = Date.now()
 
-  // TTL 초과 항목 정리
+  // Clean up expired entries
   const now = Date.now()
   for (const k of Object.keys(cache)) {
     if (now - cache[k] > ttlMs) delete cache[k]

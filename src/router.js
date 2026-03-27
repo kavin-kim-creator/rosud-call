@@ -1,22 +1,22 @@
 'use strict'
 /**
- * src/router.js — 메신저 라우팅 규칙 엔진
+ * src/router.js — Messenger routing rule engine
  *
- * 4가지 context에 따라 메시지 라우팅 동작을 결정.
+ * Determines message routing behavior based on 4 context types.
  *
  * context:
- *   'dm'            — 1:1 DM. humanId의 메시지만 처리, messengerChatId로 포워딩
- *   'group'         — 그룹방. keywords 매칭 시 messengerChatId로 포워딩
- *   'autonomous'    — 완전 자율 봇. 모든 메시지 처리, 라우팅 없음
- *   'cross-platform'— 플랫폼 간 브릿지. messengerFn으로 모든 메시지 중계
+ *   'dm'            — 1:1 DM. Process only messages from humanId, forward to messengerChatId
+ *   'group'         — Group chat. Forward to messengerChatId on keyword match
+ *   'autonomous'    — Fully autonomous bot. Process all messages, no routing
+ *   'cross-platform'— Cross-platform bridge. Relay all messages via messengerFn
  *
- * 사용 예:
+ * Usage:
  *   const router = new MessageRouter({
  *     context: 'group',
  *     messengerChatId: '-5208187269',
  *     humanId: '8171314672',
  *     messengerFn: async (chatId, text) => { ... },
- *     keywords: ['완료', '에러', 'done', 'error', 'failed'],
+ *     keywords: ['done', 'error', 'failed'],
  *   })
  *   rc.on('message', (msg) => router.route(msg))
  */
@@ -25,11 +25,11 @@ class MessageRouter {
   /**
    * @param {object} options
    * @param {'dm'|'group'|'autonomous'|'cross-platform'} options.context
-   * @param {string}   [options.messengerChatId]  포워딩 대상 채팅 ID
-   * @param {string}   [options.humanId]          DM 모드: 허용할 발신자 ID
+   * @param {string}   [options.messengerChatId]  Target chat ID for forwarding
+   * @param {string}   [options.humanId]          DM mode: allowed sender ID
    * @param {Function} [options.messengerFn]      (chatId, text) => Promise<void>
-   * @param {string[]} [options.keywords]         group 모드: 포워딩 트리거 키워드
-   * @param {Function} [options.onMessage]        라우팅 후 핸들러 (msg) => void
+   * @param {string[]} [options.keywords]         group mode: forwarding trigger keywords
+   * @param {Function} [options.onMessage]        Handler after routing (msg) => void
    */
   constructor(options = {}) {
     const {
@@ -49,12 +49,12 @@ class MessageRouter {
     this.onMessage       = onMessage
 
     if (context !== 'autonomous' && !messengerFn && context !== 'group') {
-      // group은 keywords만 체크, messengerFn 없어도 onMessage 호출 가능
+      // group only checks keywords; onMessage can be called without messengerFn
     }
   }
 
   /**
-   * 메시지를 context 규칙에 따라 라우팅.
+   * Route a message according to context rules.
    * @param {{ id, roomId, senderId, content, createdAt }} msg
    * @returns {Promise<void>}
    */
@@ -72,15 +72,15 @@ class MessageRouter {
     }
   }
 
-  // ── context 처리 ─────────────────────────────────
+  // ── context handlers ─────────────────────────────────
 
-  /** DM: humanId 발신자 메시지만 → messengerFn 또는 onMessage */
+  /** DM: only messages from humanId → messengerFn or onMessage */
   async _routeDm(msg) {
     if (this.humanId && msg.senderId !== this.humanId) return
     await this._forward(msg)
   }
 
-  /** Group: keywords 매칭 시 → messengerFn 또는 onMessage */
+  /** Group: forward on keyword match → messengerFn or onMessage */
   async _routeGroup(msg) {
     if (this.keywords.length > 0) {
       const lower = msg.content.toLowerCase()
@@ -90,23 +90,23 @@ class MessageRouter {
     await this._forward(msg)
   }
 
-  /** Cross-platform: 모든 메시지 → messengerFn */
+  /** Cross-platform: all messages → messengerFn */
   async _routeCrossPlatform(msg) {
     await this._forward(msg)
   }
 
-  /** Autonomous: 모든 메시지 → onMessage만 (외부 메신저 없음) */
+  /** Autonomous: all messages → onMessage only (no external messenger) */
   async _routeAutonomous(msg) {
     if (this.onMessage) this.onMessage(msg)
   }
 
-  /** messengerFn 호출 + onMessage 호출 */
+  /** Call messengerFn + onMessage */
   async _forward(msg) {
     if (this.messengerFn && this.messengerChatId) {
       try {
         await this.messengerFn(this.messengerChatId, msg.content)
       } catch (e) {
-        // 포워딩 실패는 onMessage 차단 안 함
+        // Forwarding failure does not block onMessage
       }
     }
     if (this.onMessage) this.onMessage(msg)
