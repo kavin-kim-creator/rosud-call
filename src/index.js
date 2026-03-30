@@ -233,6 +233,15 @@ class RosudCall extends EventEmitter {
     return this._api.getRoomMembers(roomId)
   }
 
+  /**
+   * Get message history for a room
+   * @param {string} roomId
+   * @param {number} [limit=20]
+   */
+  getMessages(roomId, limit = 20) {
+    return this._api.getMessages(roomId, limit)
+  }
+
   /** Get current bot profile (includes tg_token, tg_group) */
   getBotProfile() {
     return this._api.getBotProfile()
