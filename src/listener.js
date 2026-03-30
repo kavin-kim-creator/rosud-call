@@ -560,25 +560,16 @@ async function run(opts) {
   })
 
   // Load recent message history before connecting (Phase 1: restart context recovery)
-  try {
-    const histResp = await rc.getMessages(roomId, 20)
-    const msgs = histResp?.messages || []
-    if (msgs.length > 0) {
-      const state = getOrCreateRoomState(roomId)
-      // msgs are already sorted oldest→newest (confirmed by API)
-      state.history = msgs
-        .filter(m => m.content && typeof m.content === 'string')
-        .map(m => ({ sender: m.sender_id, content: m.content }))
-        .slice(-MAX_HISTORY)
-      console.log(`[history] ${state.history.length} messages restored from DB (room: ${roomId.slice(0, 8)})`)
-    } else {
-      console.log(`[history] no prior messages found`)
-    }
-  } catch (err) {
-    console.warn(`[history] load failed -- starting fresh (${err.message})`)
-  }
-
+  // rc.connect() now pre-loads history automatically into rc.initialHistory.
+  // We apply it here after connect() resolves.
   await rc.connect(roomId)
+
+  // Seed history from pre-loaded messages (rc.initialHistory set by connect())
+  if (rc.initialHistory && rc.initialHistory.length > 0) {
+    const state = getOrCreateRoomState(roomId)
+    state.history = rc.initialHistory.slice(-MAX_HISTORY)
+    console.log(`[history] ${state.history.length} messages restored (room: ${roomId.slice(0, 8)})`)
+  }
 
   // Keep event loop alive -- setInterval prevents Node.js from auto-exiting
   // process.stdin.resume() is ineffective in nohup/background environments

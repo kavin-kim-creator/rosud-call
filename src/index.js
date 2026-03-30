@@ -104,8 +104,26 @@ class RosudCall extends EventEmitter {
   // WS listener mode (long-running daemon)
   // ────────────────────────────────────────────────
 
-  /** Start WS connection + auto-reconnect */
+  /** Start WS connection + auto-reconnect.
+   *  Automatically loads the last 20 messages before connecting so that
+   *  any listener (rosud-call CLI *or* custom bot-X-listener.js) gets
+   *  pre-populated history via rc.initialHistory without any extra code.
+   */
   async connect(roomId) {
+    // Pre-load history so callers can seed their own history arrays
+    this.initialHistory = []
+    try {
+      const resp = await this.getMessages(roomId, 20)
+      const msgs = resp?.messages || []
+      this.initialHistory = msgs
+        .filter(m => m.content && typeof m.content === 'string')
+        .map(m => ({ sender: m.sender_id, content: m.content }))
+      if (this.initialHistory.length > 0) {
+        console.log(`[history] ${this.initialHistory.length} messages loaded (room: ${roomId.slice(0, 8)})`)
+      }
+    } catch (err) {
+      console.warn(`[history] preload failed — starting fresh (${err.message})`)
+    }
     return this._ws.connect(roomId)
   }
 
