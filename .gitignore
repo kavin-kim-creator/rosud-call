@@ -21,3 +21,8 @@ DESIGN.md
 # 로그
 *.log
 /tmp/
+
+# 서버 코드 - rosud-call-private에서만 관리
+app/
+Dockerfile
+requirements.txt
