@@ -1,7 +1,7 @@
 'use strict'
 /**
  * autonomous-bot-b.js — Autonomous conversation Bot B (Marketer, receiver process)
- * Receives PREFIX_A messages and generates LLM responses. Ends when [conclusion] appears.
+ * Receives PREFIX_A messages, generates LLM response. Stops when [conclusion] appears.
  */
 const fs = require('fs')
 const { execSync } = require('child_process')
@@ -29,10 +29,10 @@ Topic: Rosud — Stablecoin Payment API for AI Agents
 
 Rules:
 - Respond concisely in 2-3 sentences
-- React to what the CTO said and add a marketing/business angle
-- After 5+ turns, you can proactively give a [conclusion]
-- If the other party has given a [conclusion], wrap up with your own marketing-perspective [conclusion]
-- Prefix the [conclusion] tag at the start: "[conclusion] content..."
+- React to the other person's (CTO's) message and add a marketing/business angle
+- After 5+ turns, you can initiate a [conclusion] yourself
+- If the other party gave a [conclusion], you must wrap up with your own marketing-perspective [conclusion]
+- Place [conclusion] at the beginning of your message: "[conclusion] content..."
 - Think about how to position a developer-targeted product in the market`
 
 async function callLLM(messages) {
@@ -74,10 +74,10 @@ rc.on('message', async msg => {
   const aContent = raw.slice(m[0].length).trim()
 
   const el = ((Date.now() - t0) / 1000).toFixed(1)
-  // remove [CTO]: prefix if present
+  // Remove [CTO]: prefix
   const aClean = aContent.replace(/^\[CTO\]:\s*/, '')
 
-  process.stderr.write(`[${el}s] 📣 BotB recv T${t}: ${aClean.slice(0, 60)}\n`)
+  process.stderr.write(`[${el}s] Bot B recv T${t}: ${aClean.slice(0, 60)}\n`)
 
   chatHistory.push({ role: 'user', content: aClean })
 
@@ -90,9 +90,9 @@ rc.on('message', async msg => {
 
     const out = `${PREFIX_B}[T${t}] ${reply}`
     await rc.send(ROOM_ID, out)
-    process.stderr.write(`[${((Date.now()-t0)/1000).toFixed(1)}s] 📣 BotB reply T${t}: ${reply.slice(0, 60)}\n`)
+    process.stderr.write(`[${((Date.now()-t0)/1000).toFixed(1)}s] Bot B response T${t}: ${reply.slice(0, 60)}\n`)
 
-    // If Bot B concluded → wait 15s for Bot A to wrap up, then exit
+    // If Bot B gave a [conclusion], exit after 15s (wait for Bot A to wrap up)
     if (reply.includes('[conclusion]')) {
       setTimeout(() => { rc.disconnect(); process.exit(0) }, 15000)
     }
@@ -101,7 +101,15 @@ rc.on('message', async msg => {
   }
 })
 
-process.stderr.write('[BotB] started — waiting for BotA messages... (auto-exit after 3 minutes)\n')
+// Detect Bot A's [conclusion] message -> Bot B also wraps up with [conclusion]
+rc.on('message', async msg => {
+  if (!msg.content.startsWith(PREFIX_A)) return
+  if (msg.content.includes('[conclusion]')) {
+    // Already handled by the above handler
+  }
+})
+
+process.stderr.write('[BotB] started — waiting for Bot A messages... (auto-exit after 3 min)\n')
 rc.connect(ROOM_ID).catch(console.error)
 
 setTimeout(() => { rc.disconnect(); process.exit(0) }, 180_000)

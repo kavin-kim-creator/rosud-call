@@ -1,7 +1,7 @@
 'use strict'
 /**
- * autonomous-bot-a.js — Autonomous conversation Bot A (CTO, sender process)
- * Starts the first message → receives Bot B responses → sends next message. Ends when [conclusion] appears.
+ * autonomous-bot-a.js — Autonomous conversation Bot A (CTO, initiator process)
+ * Starts first statement -> receives Bot B response -> makes next statement. Stops when [conclusion] appears.
  */
 const fs = require('fs')
 const { execSync } = require('child_process')
@@ -31,9 +31,9 @@ Topic: Rosud — Stablecoin Payment API for AI Agents
 
 Rules:
 - Respond concisely in 2-3 sentences
-- React to what the marketer said and add a new technical angle
-- When you judge the conversation has matured sufficiently (usually after 5-8 turns), wrap up with [conclusion]
-- Prefix the [conclusion] tag at the start of the message: "[conclusion] content..."
+- React to the other person's (marketer's) message and add a new technical angle
+- When the conversation has matured enough (usually after 5-8 turns), summarize key insights with [conclusion]
+- Place [conclusion] at the beginning of your message: "[conclusion] content..."
 - Be honest and specific from a technical perspective`
 
 async function callLLM(messages) {
@@ -69,7 +69,7 @@ function log(who, msg) {
 
 const rc = new RosudCall({ apiKey: API_KEY, botId: 'auto-conv-a', filterSelf: true })
 
-rc.on('connected', () => log('▶', 'WS connected'))
+rc.on('connected', () => log('start', 'WS connected'))
 rc.on('error', e => console.error('[BotA] error:', e.message))
 
 rc.on('message', async msg => {
@@ -80,24 +80,24 @@ rc.on('message', async msg => {
   const m = raw.match(/^\[T(\d+)\]/)
   if (!m) return
   const bContent = raw.slice(m[0].length).trim()
-  // remove [Marketer]: prefix if present
+  // Remove [Marketer]: prefix
   const bClean = bContent.replace(/^\[Marketer\]:\s*/, '')
 
   history.push({ turn: parseInt(m[1]), from: 'B', content: bClean })
-  log('🔧 BotA recv', bClean)
+  log('Bot A recv', bClean)
   chatHistory.push({ role: 'user', content: bClean })
 
-  // If Bot B concluded → Bot A wraps up with [conclusion]
+  // If Bot B gave a [conclusion] -> Bot A also wraps up with [conclusion]
   if (bClean.includes('[conclusion]') || turn >= MAX_TURNS) {
     await new Promise(r => setTimeout(r, 1000))
     const closing = await callLLM([
       ...chatHistory,
-      { role: 'user', content: 'The marketer has given a conclusion. Please wrap up with a [conclusion] from the CTO perspective.' }
+      { role: 'user', content: 'The marketer has concluded. Briefly summarize with [conclusion] from the CTO perspective.' }
     ])
     turn++
     history.push({ turn, from: 'A', content: closing })
     await rc.send(ROOM_ID, `${PREFIX_A}[T${turn}] ${closing}`)
-    log('🔧 BotA conclusion', closing)
+    log('Bot A conclusion', closing)
     await new Promise(r => setTimeout(r, 2000))
     finish()
     return
@@ -112,10 +112,10 @@ rc.on('message', async msg => {
     history.push({ turn, from: 'A', content: reply })
 
     await rc.send(ROOM_ID, `${PREFIX_A}[T${turn}] ${reply}`)
-    log('🔧 BotA message', reply)
+    log('Bot A statement', reply)
 
     if (reply.includes('[conclusion]')) {
-      // Wait for Bot B to wrap up then finish
+      // Wait for Bot B to wrap up then exit
       setTimeout(() => finish(), 20000)
     }
   } catch (e) {
@@ -129,19 +129,19 @@ function finish() {
 
   const elapsed = ((Date.now() - t0) / 1000).toFixed(1)
   console.log('\n' + '='.repeat(70))
-  console.log('📊 Autonomous Conversation Results')
+  console.log('Autonomous Conversation Results')
   console.log('='.repeat(70))
-  console.log(`Total elapsed: ${elapsed}s`)
+  console.log(`Total time: ${elapsed}s`)
   const cntA = history.filter(h => h.from === 'A').length
   const cntB = history.filter(h => h.from === 'B').length
-  console.log(`Total turns: ${history.length} (BotA CTO: ${cntA} / BotB Marketer: ${cntB})`)
+  console.log(`Total statements: ${history.length} turns (Bot A CTO: ${cntA} / Bot B Marketer: ${cntB})`)
 
   const hasConclusion = history.some(h => h.content.includes('[conclusion]'))
-  console.log(`Conclusion reached: ${hasConclusion ? '✅ Autonomous' : '⏰ Max turns reached'}`)
+  console.log(`Conclusion reached: ${hasConclusion ? 'Autonomously reached' : 'Max turns reached'}`)
 
-  console.log('\n[Full conversation]')
+  console.log('\n[Full Conversation]')
   history.forEach(h => {
-    const who = h.from === 'A' ? '🔧 CTO      ' : '📣 Marketer'
+    const who = h.from === 'A' ? 'CTO     ' : 'Marketer'
     console.log(`  T${String(h.turn).padStart(2,'0')} ${who}: ${h.content}`)
     console.log()
   })
@@ -161,22 +161,22 @@ function finish() {
   process.exit(0)
 }
 
-// Safety timeout: 3 minutes
-setTimeout(() => { log('⏰', 'timeout'); finish() }, 180_000)
+// Safety guard: 3 minutes
+setTimeout(() => { log('timeout', 'Timeout'); finish() }, 180_000)
 
 async function main() {
   await rc.connect(ROOM_ID)
   await new Promise(r => setTimeout(r, 500))
 
-  // Opening message
+  // First statement
   const opening = await callLLM([
-    { role: 'user', content: `Topic: Rosud — Stablecoin Payment API for AI Agents. Bring up the core technical differentiator of this product to your marketer colleague.` }
+    { role: 'user', content: `Topic: Rosud — Stablecoin Payment API for AI Agents. Naturally bring up the key technical differentiator of this product to your marketer colleague.` }
   ])
   chatHistory.push({ role: 'assistant', content: opening })
   turn = 1
   history.push({ turn, from: 'A', content: opening })
   await rc.send(ROOM_ID, `${PREFIX_A}[T${turn}] ${opening}`)
-  log('🔧 BotA opening', opening)
+  log('Bot A opening', opening)
 }
 
 main().catch(console.error)
