@@ -1,17 +1,17 @@
 'use strict'
 /**
- * test/bot-a.js — 테스트 봇A (발신 + 검증)
+ * test/bot-a.js — Test Bot A (send + verify)
  *
- * BOT_MESSAGING_ROOM_BRIDGE 방에 10개 메시지 발신 (1초 간격).
- * 봇B 에코 응답을 수신해 자기 에코 미포함 여부 검증.
+ * Sends 10 messages to BOT_MESSAGING_ROOM_BRIDGE room (1 second interval).
+ * Receives Bot B echo responses and verifies they don't include self-echoes.
  *
- * 실행: node test/bot-a.js  (bot-b.js 먼저 실행 필요)
+ * Run: node test/bot-a.js  (requires bot-b.js to be running first)
  */
 
 const fs = require('fs')
 const { RosudCall } = require('../src/index')
 
-// .secrets 파일에서 인증정보 로드
+// Load credentials from .secrets file
 function loadSecrets(filePath) {
   const secrets = {}
   try {
@@ -24,7 +24,7 @@ function loadSecrets(filePath) {
       secrets[trimmed.slice(0, idx).trim()] = trimmed.slice(idx + 1).trim()
     }
   } catch (e) {
-    console.error('[봇A] .secrets 파일 로드 실패:', e.message)
+    console.error('[BotA] failed to load .secrets file:', e.message)
     process.exit(1)
   }
   return secrets
@@ -38,33 +38,33 @@ const BOT_ID  = s.BOT_MESSAGING_BOT_ID || 'test-bot-a'
 const ROOM_ID = s.BOT_MESSAGING_ROOM_BRIDGE
 
 if (!API_KEY || !ROOM_ID) {
-  console.error('[봇A] 필수 환경변수 없음: BOT_MESSAGING_API_KEY, BOT_MESSAGING_ROOM_BRIDGE')
+  console.error('[BotA] missing required env vars: BOT_MESSAGING_API_KEY, BOT_MESSAGING_ROOM_BRIDGE')
   process.exit(1)
 }
 
 const TOTAL    = 10
-const INTERVAL = 1000   // 1초
+const INTERVAL = 1000   // 1 second
 
-// 같은 API 키 환경: 서버가 sender_id를 API 키 기반으로 결정하므로
-// 봇B 에코도 sender_id === botId로 오게 됨 → filterSelf: false 필요
+// Same API key environment: server determines sender_id based on API key,
+// so Bot B echoes also arrive with sender_id === botId → filterSelf: false required
 const rc = new RosudCall({ apiKey: API_KEY, botId: BOT_ID, filterSelf: false })
 
 let sent     = 0
 let received = 0
 
-rc.on('connected', () => console.log('[봇A] WS 연결됨 — 발신 시작'))
-rc.on('error',     (e) => console.error('[봇A] 에러:', e.message))
+rc.on('connected', () => console.log('[BotA] WS connected — starting send'))
+rc.on('error',     (e) => console.error('[BotA] error:', e.message))
 
 rc.on('message', (msg) => {
-  // 같은 API 키 환경: sender_id가 모두 동일하므로 content prefix로만 구분
-  // [A] prefix = 자기 메시지, [B][에코] prefix = 봇B 에코
+  // Same API key environment: all sender_ids are the same, distinguish by content prefix only
+  // [A] prefix = own message, [B][echo] prefix = Bot B echo
   if (msg.content.startsWith('[A]')) {
-    // 자기 발신 메시지 - 무시
+    // Own sent message - ignore
     return
   }
-  if (msg.content.startsWith('[B][에코]')) {
+  if (msg.content.startsWith('[B][echo]')) {
     received++
-    console.log(`[봇A] 에코 수신 (${received}/${TOTAL}): ${msg.content.slice(0, 60)}`)
+    console.log(`[BotA] echo received (${received}/${TOTAL}): ${msg.content.slice(0, 60)}`)
     if (received >= TOTAL) finish()
   }
 })
@@ -72,21 +72,21 @@ rc.on('message', (msg) => {
 async function sendLoop() {
   for (let i = 1; i <= TOTAL; i++) {
     const ts  = new Date().toISOString().slice(11, 19)
-    const msg = `[A] Test ${i}/${TOTAL}: rosud-call SDK 테스트 — ${ts}`
+    const msg = `[A] Test ${i}/${TOTAL}: rosud-call SDK test — ${ts}`
     await rc.send(ROOM_ID, msg)
     sent++
-    console.log(`[봇A] 발신 (${i}/${TOTAL}): ${msg}`)
+    console.log(`[BotA] sent (${i}/${TOTAL}): ${msg}`)
     if (i < TOTAL) await sleep(INTERVAL)
   }
-  console.log('[봇A] 발신 완료. 에코 응답 대기 중...')
+  console.log('[BotA] send complete. Waiting for echo responses...')
   setTimeout(() => finish('timeout'), 30_000)
 }
 
 function finish(reason = 'done') {
-  console.log('\n=== 결과 ===')
-  console.log(`발신: ${sent} / 수신(에코): ${received}`)
-  console.log(`결과: ${received === TOTAL ? '전부 수신' : `${TOTAL - received}개 누락`}`)
-  console.log(`종료 사유: ${reason}`)
+  console.log('\n=== Results ===')
+  console.log(`sent: ${sent} / received (echo): ${received}`)
+  console.log(`result: ${received === TOTAL ? 'all received' : `${TOTAL - received} missing`}`)
+  console.log(`exit reason: ${reason}`)
   rc.disconnect()
   process.exit(received === TOTAL ? 0 : 1)
 }

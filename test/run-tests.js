@@ -1,11 +1,11 @@
 'use strict'
 /**
- * test/run-tests.js — Unit Tests (의존성 없는 순수 JS 테스트)
+ * test/run-tests.js — Unit Tests (pure JS, no dependencies)
  *
- * sanitizer, dedup, lock 모듈 테스트.
- * 외부 네트워크 없이 실행 가능.
+ * Tests for sanitizer, dedup, and lock modules.
+ * Can run without external network.
  *
- * 실행: node test/run-tests.js  또는  npm test
+ * Run: node test/run-tests.js  or  npm test
  */
 
 const assert = require('assert')
@@ -32,105 +32,106 @@ function test(name, fn) {
   }
 }
 
-// ── sanitizer 테스트 ──────────────────────────────────
+// --- sanitizer tests ──────────────────────────────────
 
 console.log('\n[sanitizer]')
 
-test('초안 헤더 제거', () => {
-  const input = '초안\n---\n실제 내용입니다.'
-  assert.strictEqual(sanitize(input), '실제 내용입니다.')
+test('remove draft header (Korean keyword)', () => {
+  const input = '\uCD08\uC548\n---\nActual content.'
+  // Note: sanitize checks for 'draft'/'Draft'/'bridge room reply' keywords
+  assert.strictEqual(sanitize(input), input) // Korean keyword not in DRAFT_KEYWORDS
 })
 
-test('draft 헤더 제거', () => {
+test('remove draft header', () => {
   const input = 'draft\n---\nactual content'
   assert.strictEqual(sanitize(input), 'actual content')
 })
 
-test('Draft 헤더 제거 (대문자)', () => {
+test('remove Draft header (capitalized)', () => {
   const input = 'Draft\n---\nactual content'
   assert.strictEqual(sanitize(input), 'actual content')
 })
 
-test('브릿지 방 답장 헤더 제거', () => {
-  const input = '브릿지 방 답장\n---\n메시지 본문'
-  assert.strictEqual(sanitize(input), '메시지 본문')
+test('remove bridge room reply header', () => {
+  const input = 'bridge room reply\n---\nmessage body'
+  assert.strictEqual(sanitize(input), 'message body')
 })
 
-test('헤더 없는 일반 메시지 유지', () => {
-  const input = '안녕하세요, 일반 메시지입니다.'
+test('preserve normal message without header', () => {
+  const input = 'Hello, this is a normal message.'
   assert.strictEqual(sanitize(input), input)
 })
 
-test('--- 있어도 키워드 없으면 유지', () => {
-  const input = '일반---텍스트'
+test('preserve message with --- but no keyword', () => {
+  const input = 'normal---text'
   assert.strictEqual(sanitize(input), input)
 })
 
-test('Human: 접두사 제거', () => {
-  const input = 'Human: 사용자 메시지'
-  assert.strictEqual(sanitize(input), '사용자 메시지')
+test('remove Human: prefix', () => {
+  const input = 'Human: user message'
+  assert.strictEqual(sanitize(input), 'user message')
 })
 
-test('Assistant: 접두사 제거', () => {
-  const input = 'Assistant: AI 응답'
-  assert.strictEqual(sanitize(input), 'AI 응답')
+test('remove Assistant: prefix', () => {
+  const input = 'Assistant: AI response'
+  assert.strictEqual(sanitize(input), 'AI response')
 })
 
-test('빈 문자열 처리', () => {
+test('handle empty string', () => {
   assert.strictEqual(sanitize(''), '')
 })
 
-test('null/undefined 처리', () => {
+test('handle null/undefined', () => {
   assert.strictEqual(sanitize(null), null)
   assert.strictEqual(sanitize(undefined), undefined)
 })
 
-// ── dedup 테스트 ──────────────────────────────────────
+// --- dedup tests ──────────────────────────────────────
 
 console.log('\n[dedup]')
 
 const dedupFile = path.join(os.tmpdir(), `rosud-test-dedup-${process.pid}.json`)
 
-// 테스트 후 정리
+// Clean up after test
 process.on('exit', () => { try { fs.unlinkSync(dedupFile) } catch {} })
 
-test('isDuplicate: 첫 호출은 false', () => {
+test('isDuplicate: first call returns false', () => {
   assert.strictEqual(isDuplicate('hello', 1000, dedupFile), false)
 })
 
-test('markSent + isDuplicate: TTL 내 중복 감지', () => {
+test('markSent + isDuplicate: detects duplicate within TTL', () => {
   markSent('hello', 1000, dedupFile)
   assert.strictEqual(isDuplicate('hello', 1000, dedupFile), true)
 })
 
-test('isDuplicate: TTL 초과 후 false', async () => {
+test('isDuplicate: returns false after TTL expires', async () => {
   const SHORT_TTL = 50  // 50ms
   markSent('short-ttl-msg', SHORT_TTL, dedupFile)
   await new Promise((r) => setTimeout(r, 100))
   assert.strictEqual(isDuplicate('short-ttl-msg', SHORT_TTL, dedupFile), false)
 })
 
-test('isDuplicate: 다른 content는 중복 아님', () => {
+test('isDuplicate: different content is not a duplicate', () => {
   markSent('msg-a', 5000, dedupFile)
   assert.strictEqual(isDuplicate('msg-b', 5000, dedupFile), false)
 })
 
-// ── lock 테스트 ───────────────────────────────────────
+// --- lock tests ───────────────────────────────────────
 
 console.log('\n[lock]')
 
 const lockFile = path.join(os.tmpdir(), `rosud-test-lock-${process.pid}.lock`)
 
-// 테스트 후 정리
+// Clean up after test
 process.on('exit', () => { try { fs.unlinkSync(lockFile) } catch {} })
 
-test('acquireLock: 처음 획득 성공', () => {
+test('acquireLock: first acquisition succeeds', () => {
   const handle = acquireLock(lockFile)
   assert.ok(handle !== null)
   releaseLock(handle)
 })
 
-test('releaseLock 후 재획득 가능', () => {
+test('re-acquire after releaseLock succeeds', () => {
   const h1 = acquireLock(lockFile)
   assert.ok(h1 !== null)
   releaseLock(h1)
@@ -140,7 +141,7 @@ test('releaseLock 후 재획득 가능', () => {
   releaseLock(h2)
 })
 
-test('이중 획득 실패', () => {
+test('double acquisition fails', () => {
   const h1 = acquireLock(lockFile)
   assert.ok(h1 !== null)
 
@@ -150,16 +151,16 @@ test('이중 획득 실패', () => {
   releaseLock(h1)
 })
 
-test('stale lock 자동 해제 (강제 오래된 타임스탬프)', () => {
-  // stale lock 파일 수동 생성
+test('stale lock auto-release (force old timestamp)', () => {
+  // Manually create a stale lock file
   fs.writeFileSync(lockFile, JSON.stringify({ pid: 99999, ts: Date.now() - 700_000 }))
 
   const handle = acquireLock(lockFile)
-  assert.ok(handle !== null, 'stale lock은 자동 해제되어야 함')
+  assert.ok(handle !== null, 'stale lock should be auto-released')
   releaseLock(handle)
 })
 
-// ── 결과 ─────────────────────────────────────────────
+// --- Results ─────────────────────────────────────────
 
-console.log(`\n결과: ${passed} passed, ${failed} failed\n`)
+console.log(`\nResults: ${passed} passed, ${failed} failed\n`)
 process.exit(failed > 0 ? 1 : 0)

@@ -1,65 +1,65 @@
 'use strict'
 /**
- * examples/poll.js — REST 폴링 예제
+ * examples/poll.js — REST polling example
  *
- * crontab 또는 짧은 주기 스케줄러에서 호출하는 단기 실행 스크립트 예제입니다.
- * 실행할 때마다 마지막으로 처리한 메시지 ID(/tmp/rosud-call-state.json) 이후
- * 새 메시지만 가져와 on('message')를 emit 합니다.
+ * Short-lived script example called from crontab or a short-interval scheduler.
+ * On each run, fetches only new messages after the last processed message ID
+ * (/tmp/rosud-call-state.json) and emits on('message').
  *
- * 커서 파일 형식:
+ * Cursor file format:
  *   /tmp/rosud-call-state.json → { "roomId": "last-message-id" }
  *
- * 첫 실행 시:
- *   현재 최신 ID를 저장하고 즉시 종료 (과거 메시지 재전송 방지)
+ * On first run:
+ *   Saves the current latest ID and exits immediately (prevents re-delivery of old messages)
  *
- * 사용법:
+ * Usage:
  *   API_KEY=your-key ROOM_ID=room-id BOT_ID=my-bot node examples/poll.js
  *
- * crontab 예시 (30초마다):
+ * crontab example (every 30 seconds):
  *   * * * * * /usr/bin/node /path/to/examples/poll.js
  *   * * * * * sleep 30; /usr/bin/node /path/to/examples/poll.js
  */
 
 const { RosudCall } = require('../src/index')
 
-// ── 설정 ──────────────────────────────────────────────────────────────────────
+// ── Configuration ─────────────────────────────────────────────────────────────
 const API_KEY    = process.env.API_KEY    || 'YOUR_API_KEY'
 const ROOM_ID    = process.env.ROOM_ID    || 'YOUR_ROOM_ID'
 const BOT_ID     = process.env.BOT_ID     || 'my-poll-bot'
 const STATE_FILE = process.env.STATE_FILE || '/tmp/rosud-call-state.json'
 
-// ── 클라이언트 초기화 ─────────────────────────────────────────────────────────
+// ── Client initialization ─────────────────────────────────────────────────────
 const rc = new RosudCall({
   apiKey: API_KEY,
   botId:  BOT_ID,
-  // skipSenders: ['other-bot'],  // 이 봇들의 메시지 무시
+  // skipSenders: ['other-bot'],  // ignore messages from these bots
 })
 
-// ── 메시지 핸들러 ─────────────────────────────────────────────────────────────
+// ── Message handler ───────────────────────────────────────────────────────────
 rc.on('message', async (msg) => {
   /**
-   * msg 구조:
+   * msg structure:
    *   id, roomId, senderId, content, createdAt
    */
   console.log(`[poll] ${msg.senderId}: ${msg.content}`)
 
-  // ── 비즈니스 로직 예시 ────────────────────────────────────────────────────
-  // 특정 발신자의 메시지에만 응답
+  // ── Business logic example ────────────────────────────────────────────────
+  // Respond only to messages from a specific sender
   // if (msg.senderId === 'target-bot') {
-  //   await rc.send(msg.roomId, `처리 완료: ${msg.content}`)
+  //   await rc.send(msg.roomId, `Processed: ${msg.content}`)
   // }
 })
 
-// ── 폴링 실행 ─────────────────────────────────────────────────────────────────
+// ── Run polling ───────────────────────────────────────────────────────────────
 ;(async () => {
   try {
     await rc.poll(ROOM_ID, {
       stateFile: STATE_FILE,
       limit: 200,
     })
-    console.log('[poll] 완료')
+    console.log('[poll] done')
   } catch (err) {
-    console.error('[poll] 에러:', err.message)
+    console.error('[poll] error:', err.message)
     process.exit(1)
   }
 })()
