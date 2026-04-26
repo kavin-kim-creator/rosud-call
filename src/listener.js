@@ -556,12 +556,11 @@ async function run(opts) {
             sendTg(tgToken, tgGroup, `bot conversation\n${botId}: ${response.slice(0, 300)}\n(UTC)`, tgCmd)
           }
 
-          // Stop if our response contains [DONE]
+          // If our response contains [DONE], reset consecutive counter but don't permanently stop
+          // (loopStopped stays false so we keep responding to future messages)
           if (/\[DONE\]/i.test(response)) {
-            state.loopStopped = true
             state.consecutiveCount = 0
-            console.log('[done] response contains [DONE] -- stopping auto-response')
-            return
+            console.log('[done] response contains [DONE] -- resetting counter, continuing to listen')
           }
 
           // Conversation Judge: check every 3 turns
