@@ -497,8 +497,8 @@ async function run(opts) {
     }
 
     // [ABORT] permanently stops auto-response
-    // [DONE] is a "conversation end signal", not a "listener stop signal"
-    // -> Messages containing [DONE] are skipped only; loopStopped is not changed
+    // [DONE] handling: only skip if the message is ONLY [DONE] (or just whitespace around it)
+    // If [DONE] is appended to actual content, respond normally (the content matters)
     if (/\[ABORT\]/i.test(content)) {
       if (!state.loopStopped) {
         state.loopStopped = true
@@ -507,9 +507,10 @@ async function run(opts) {
       }
       return
     }
-    // [DONE] -- skip without responding (loopStopped unchanged)
-    if (/\[DONE\]/i.test(content)) {
-      console.log('[skip] DONE detected -- skipping response for this message (listener continues)')
+    // [DONE]-only message: skip (pure termination signal, no actual content)
+    const strippedContent = content.replace(/\[DONE\]/gi, '').trim()
+    if (/\[DONE\]/i.test(content) && strippedContent.length < 10) {
+      console.log('[skip] DONE-only message -- skipping (listener continues)')
       return
     }
 
