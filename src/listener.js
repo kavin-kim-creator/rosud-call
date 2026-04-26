@@ -563,19 +563,11 @@ async function run(opts) {
             console.log('[done] response contains [DONE] -- resetting counter, continuing to listen')
           }
 
-          // Conversation Judge: check every 3 turns
-          if (state.turnCount % JUDGE_EVERY === 0) {
-            console.log(`[judge] turn ${state.turnCount} reached -- checking whether to continue...`)
-            const shouldContinue = await judgeConversation(state.history, roomGoal, respCmd, respOpts)
-            if (!shouldContinue) {
-              state.loopStopped = true
-              state.consecutiveCount = 0
-              console.log('[judge] decided to end -- sending [DONE]')
-              await rc.send(msgRoomId, '[DONE] Conversation goal achieved. Ending.')
-            } else {
-              console.log('[judge] decided to continue')
-            }
-          }
+          // Conversation Judge: disabled — judge was prematurely ending conversations
+          // by sending [DONE] even when humans still want bots to keep talking.
+          // Bots now continue until maxTurns is hit or [ABORT] is sent.
+          // console.log('[judge] disabled')
+
         } else {
           console.warn('[response failed] skipping this turn')
         }
