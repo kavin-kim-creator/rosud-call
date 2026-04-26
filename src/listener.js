@@ -239,7 +239,16 @@ async function judgeConversation(history, goal, responderCmd, opts = {}) {
 }
 
 /** Send a Telegram message (optional feature) */
-function sendTg(token, chatId, text) {
+function sendTg(token, chatId, text, tgCmd) {
+  // If tgCmd is provided, use CLI command instead of direct HTTPS
+  if (tgCmd) {
+    const { execFile } = require('child_process')
+    const parts = tgCmd.split(' ')
+    execFile(parts[0], [...parts.slice(1), text.slice(0, 4000)], { timeout: 10000 }, (err) => {
+      if (err) console.error('[TG cmd error]', err.message.slice(0, 80))
+    })
+    return
+  }
   if (!token || !chatId) return
   const body = JSON.stringify({ chat_id: chatId, text: text.slice(0, 4000) })
   const req = https.request({
@@ -279,6 +288,13 @@ async function run(opts) {
   const roomId  = opts.room
   let tgToken = opts.tgToken  || process.env.TELEGRAM_BOT_TOKEN || ''
   let tgGroup = opts.tgGroup  || process.env.TG_GROUP_ID || ''
+  const tgCmd   = opts.tgCmd  || process.env.TG_CMD || ''   // NEW: CLI-based TG send
+  const selfMirror = opts.selfMirror === true || opts.selfMirror === 'true' // NEW: mirror own outgoing msgs
+  const skipMirrorSenders = new Set(                                        // NEW: skip mirror for these bots (they self-mirror)
+    opts.skipMirrorSenders
+      ? opts.skipMirrorSenders.split(',').map(s => s.trim()).filter(Boolean)
+      : []
+  )
   const respCmd         = opts.responder || null
   const responderTimeout = opts.responderTimeout ? parseInt(opts.responderTimeout) : 180_000
   // responderUrl option is no longer used (Gateway /api/agent endpoint does not exist)
@@ -335,11 +351,13 @@ async function run(opts) {
 
   if (!apiKey) { console.error('BOT_MESSAGING_API_KEY env var required'); process.exit(1) }
   if (!botId)  { console.error('BOT_MESSAGING_BOT_ID env var required'); process.exit(1) }
-  if (!roomId) { console.error('--room option required'); process.exit(1) }
+  // --room is optional: if omitted, starts in invite-wait mode (auto-joins rooms on invite)
+
+  const inviteWaitMode = !roomId
 
   console.log(`[rosud-call listen] starting`)
   console.log(`  botId        : ${botId}`)
-  console.log(`  room         : ${roomId}`)
+  console.log(`  room         : ${roomId || '(invite-wait mode — waiting for room invite)'}`)
   console.log(`  respondTo    : ${[...respondTo].join(', ') || '(none -- mirror only)'}`)
   console.log(`  maxTurns     : ${MAX_CONSECUTIVE}`)
   console.log(`  timeout      : ${responderTimeout}ms`)
@@ -383,16 +401,18 @@ async function run(opts) {
 
   // Fetch room goal (null if not set)
   let roomGoal = null
-  try {
-    const roomInfo = await rc.getRoom(roomId)
-    roomGoal = roomInfo?.goal || roomInfo?.room?.goal || null
-    if (roomGoal) console.log(`  goal      : ${roomGoal}`)
-  } catch {
-    // Ignore goal fetch failure
+  if (roomId) {
+    try {
+      const roomInfo = await rc.getRoom(roomId)
+      roomGoal = roomInfo?.goal || roomInfo?.room?.goal || null
+      if (roomGoal) console.log(`  goal      : ${roomGoal}`)
+    } catch {
+      // Ignore goal fetch failure
+    }
   }
 
   // Auto-discover room members if --respond-to is not specified -> add to respondTo
-  if (respondTo.size === 0) {
+  if (roomId && respondTo.size === 0) {
     try {
       const raw = await rc.getRoomMembers(roomId)
       const list = Array.isArray(raw) ? raw : (raw?.members || raw?.memberIds || [])
@@ -471,8 +491,9 @@ async function run(opts) {
     if (state.history.length > MAX_HISTORY) state.history.shift()
 
     // TG mirroring -- skip own messages, only mirror other bots
-    if (tgToken && tgGroup && senderId !== botId) {
-      sendTg(tgToken, tgGroup, `bot conversation\n${senderId}: ${content.slice(0, 300)}\n(${ts} UTC)`)
+    // Also skip if sender is in skipMirrorSenders (they self-mirror via tgCmd)
+    if ((tgToken || tgCmd) && tgGroup && senderId !== botId && !skipMirrorSenders.has(senderId)) {
+      sendTg(tgToken, tgGroup, `bot conversation\n${senderId}: ${content.slice(0, 300)}\n(${ts} UTC)`, tgCmd)
     }
 
     // [ABORT] permanently stops auto-response
@@ -529,6 +550,11 @@ async function run(opts) {
           await rc.send(msgRoomId, response)
           console.log(`[sent] ${response.slice(0, 80)}`)
 
+          // Self-mirror: send own outgoing response to TG as well
+          if (selfMirror && (tgToken || tgCmd) && tgGroup) {
+            sendTg(tgToken, tgGroup, `bot conversation\n${botId}: ${response.slice(0, 300)}\n(UTC)`, tgCmd)
+          }
+
           // Stop if our response contains [DONE]
           if (/\[DONE\]/i.test(response)) {
             state.loopStopped = true
@@ -562,13 +588,17 @@ async function run(opts) {
   // Load recent message history before connecting (Phase 1: restart context recovery)
   // rc.connect() now pre-loads history automatically into rc.initialHistory.
   // We apply it here after connect() resolves.
-  await rc.connect(roomId)
+  await rc.connect(roomId || null)
 
   // Seed history from pre-loaded messages (rc.initialHistory set by connect())
-  if (rc.initialHistory && rc.initialHistory.length > 0) {
+  if (roomId && rc.initialHistory && rc.initialHistory.length > 0) {
     const state = getOrCreateRoomState(roomId)
     state.history = rc.initialHistory.slice(-MAX_HISTORY)
     console.log(`[history] ${state.history.length} messages restored (room: ${roomId.slice(0, 8)})`)
+  }
+
+  if (inviteWaitMode) {
+    console.log('[invite-wait] connected — waiting for room invite to start listening')
   }
 
   // Keep event loop alive -- setInterval prevents Node.js from auto-exiting

@@ -1,7 +1,7 @@
 'use strict'
 /**
- * autonomous-bot-a.js — Autonomous conversation Bot A (CTO, initiator process)
- * Starts first statement -> receives Bot B response -> makes next statement. Stops when [conclusion] appears.
+ * autonomous-bot-a.js — 자율 대화 봇A (CTO, 발신 프로세스)
+ * 첫 발언 시작 → 봇B 응답 수신 → 다음 발언. [결론] 나오면 종료.
  */
 const fs = require('fs')
 const { execSync } = require('child_process')
@@ -26,15 +26,15 @@ const PREFIX_B = '[AUTO-B]'
 
 const MAX_TURNS = 10
 
-const SYSTEM_A = `You are Rosud's CTO. You value technical depth and practicality.
-Topic: Rosud — Stablecoin Payment API for AI Agents
+const SYSTEM_A = `너는 Rosud의 CTO야. 기술적 깊이와 실용성을 중시해.
+주제: Rosud — AI 에이전트용 스테이블코인 결제 API
 
-Rules:
-- Respond concisely in 2-3 sentences
-- React to the other person's (marketer's) message and add a new technical angle
-- When the conversation has matured enough (usually after 5-8 turns), summarize key insights with [conclusion]
-- Place [conclusion] at the beginning of your message: "[conclusion] content..."
-- Be honest and specific from a technical perspective`
+규칙:
+- 2-3문장으로 간결하게 응답해
+- 상대방(마케터) 말에 반응하고 새로운 기술적 각도를 추가해
+- 대화가 충분히 무르익었다고 판단되면 (보통 5-8턴 이후) [결론]으로 핵심 인사이트 정리
+- [결론]은 메시지 맨 앞에 붙여: "[결론] 내용..."
+- 기술적 관점에서 솔직하고 구체적으로 말해`
 
 async function callLLM(messages) {
   const payload = JSON.stringify({
@@ -57,7 +57,7 @@ async function callLLM(messages) {
 }
 
 const chatHistory = []
-const history = []   // for output
+const history = []   // 출력용
 let turn = 0
 let finished = false
 const t0 = Date.now()
@@ -69,8 +69,8 @@ function log(who, msg) {
 
 const rc = new RosudCall({ apiKey: API_KEY, botId: 'auto-conv-a', filterSelf: true })
 
-rc.on('connected', () => log('start', 'WS connected'))
-rc.on('error', e => console.error('[BotA] error:', e.message))
+rc.on('connected', () => log('▶', 'WS 연결됨'))
+rc.on('error', e => console.error('[봇A] 에러:', e.message))
 
 rc.on('message', async msg => {
   if (finished) return
@@ -80,24 +80,24 @@ rc.on('message', async msg => {
   const m = raw.match(/^\[T(\d+)\]/)
   if (!m) return
   const bContent = raw.slice(m[0].length).trim()
-  // Remove [Marketer]: prefix
-  const bClean = bContent.replace(/^\[Marketer\]:\s*/, '')
+  // [마케터]: prefix 제거
+  const bClean = bContent.replace(/^\[마케터\]:\s*/, '')
 
   history.push({ turn: parseInt(m[1]), from: 'B', content: bClean })
-  log('Bot A recv', bClean)
+  log('🔧 봇A 수신', bClean)
   chatHistory.push({ role: 'user', content: bClean })
 
-  // If Bot B gave a [conclusion] -> Bot A also wraps up with [conclusion]
-  if (bClean.includes('[conclusion]') || turn >= MAX_TURNS) {
+  // 봇B가 [결론] 냈으면 → 봇A도 [결론]으로 마무리
+  if (bClean.includes('[결론]') || turn >= MAX_TURNS) {
     await new Promise(r => setTimeout(r, 1000))
     const closing = await callLLM([
       ...chatHistory,
-      { role: 'user', content: 'The marketer has concluded. Briefly summarize with [conclusion] from the CTO perspective.' }
+      { role: 'user', content: '마케터가 결론을 냈어. CTO 관점에서 [결론]으로 짧게 정리해줘.' }
     ])
     turn++
     history.push({ turn, from: 'A', content: closing })
     await rc.send(ROOM_ID, `${PREFIX_A}[T${turn}] ${closing}`)
-    log('Bot A conclusion', closing)
+    log('🔧 봇A 결론', closing)
     await new Promise(r => setTimeout(r, 2000))
     finish()
     return
@@ -112,14 +112,14 @@ rc.on('message', async msg => {
     history.push({ turn, from: 'A', content: reply })
 
     await rc.send(ROOM_ID, `${PREFIX_A}[T${turn}] ${reply}`)
-    log('Bot A statement', reply)
+    log('🔧 봇A 발언', reply)
 
-    if (reply.includes('[conclusion]')) {
-      // Wait for Bot B to wrap up then exit
+    if (reply.includes('[결론]')) {
+      // 봇B 마무리 대기 후 종료
       setTimeout(() => finish(), 20000)
     }
   } catch (e) {
-    console.error('[BotA] LLM error:', e.message)
+    console.error('[봇A] LLM 오류:', e.message)
   }
 })
 
@@ -129,29 +129,29 @@ function finish() {
 
   const elapsed = ((Date.now() - t0) / 1000).toFixed(1)
   console.log('\n' + '='.repeat(70))
-  console.log('Autonomous Conversation Results')
+  console.log('📊 자율 대화 결과')
   console.log('='.repeat(70))
-  console.log(`Total time: ${elapsed}s`)
+  console.log(`총 소요시간: ${elapsed}초`)
   const cntA = history.filter(h => h.from === 'A').length
   const cntB = history.filter(h => h.from === 'B').length
-  console.log(`Total statements: ${history.length} turns (Bot A CTO: ${cntA} / Bot B Marketer: ${cntB})`)
+  console.log(`총 발언: ${history.length}턴 (봇A CTO: ${cntA} / 봇B 마케터: ${cntB})`)
 
-  const hasConclusion = history.some(h => h.content.includes('[conclusion]'))
-  console.log(`Conclusion reached: ${hasConclusion ? 'Autonomously reached' : 'Max turns reached'}`)
+  const hasConclusion = history.some(h => h.content.includes('[결론]'))
+  console.log(`결론 도출: ${hasConclusion ? '✅ 자율 도출' : '⏰ 최대 턴 도달'}`)
 
-  console.log('\n[Full Conversation]')
+  console.log('\n[전체 대화]')
   history.forEach(h => {
-    const who = h.from === 'A' ? 'CTO     ' : 'Marketer'
+    const who = h.from === 'A' ? '🔧 CTO   ' : '📣 마케터'
     console.log(`  T${String(h.turn).padStart(2,'0')} ${who}: ${h.content}`)
     console.log()
   })
 
-  const conclusionLines = history.filter(h => h.content.includes('[conclusion]'))
+  const conclusionLines = history.filter(h => h.content.includes('[결론]'))
   if (conclusionLines.length > 0) {
-    console.log('[Key Conclusions]')
+    console.log('[핵심 결론]')
     conclusionLines.forEach(h => {
-      const who = h.from === 'A' ? 'CTO' : 'Marketer'
-      const txt = h.content.replace('[conclusion]', '').trim()
+      const who = h.from === 'A' ? 'CTO' : '마케터'
+      const txt = h.content.replace('[결론]', '').trim()
       console.log(`  [${who}] ${txt}`)
     })
   }
@@ -161,22 +161,22 @@ function finish() {
   process.exit(0)
 }
 
-// Safety guard: 3 minutes
-setTimeout(() => { log('timeout', 'Timeout'); finish() }, 180_000)
+// 안전장치 3분
+setTimeout(() => { log('⏰', '타임아웃'); finish() }, 180_000)
 
 async function main() {
   await rc.connect(ROOM_ID)
   await new Promise(r => setTimeout(r, 500))
 
-  // First statement
+  // 첫 발언
   const opening = await callLLM([
-    { role: 'user', content: `Topic: Rosud — Stablecoin Payment API for AI Agents. Naturally bring up the key technical differentiator of this product to your marketer colleague.` }
+    { role: 'user', content: `주제: Rosud — AI 에이전트용 스테이블코인 결제 API. 마케터 동료에게 이 제품의 핵심 기술적 차별점을 자연스럽게 꺼내봐.` }
   ])
   chatHistory.push({ role: 'assistant', content: opening })
   turn = 1
   history.push({ turn, from: 'A', content: opening })
   await rc.send(ROOM_ID, `${PREFIX_A}[T${turn}] ${opening}`)
-  log('Bot A opening', opening)
+  log('🔧 봇A 오프닝', opening)
 }
 
 main().catch(console.error)

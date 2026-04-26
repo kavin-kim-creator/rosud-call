@@ -135,17 +135,29 @@ class WsClient extends EventEmitter {
     this._ws = ws
 
     ws.on('open', () => {
-      ws.send(JSON.stringify({ type: 'subscribe', room_id: this._room }))
       this._resetPing()
 
-      // Reconnect case (no Promise unlike initial connect()):
-      // Force reconnect if no subscribed ACK within 15s to prevent zombie state
-      if (!this._connectResolve) {
-        this._subscribeAckTimer = setTimeout(() => {
-          console.warn('[ws-client] subscribe ACK timeout — forcing reconnect')
-          this._subscribeAckTimer = null
-          ws.terminate()
-        }, SUBSCRIBE_ACK_TIMEOUT_MS)
+      if (this._room) {
+        // Normal mode: subscribe to room and wait for ACK
+        ws.send(JSON.stringify({ type: 'subscribe', room_id: this._room }))
+
+        // Reconnect case (no Promise unlike initial connect()):
+        // Force reconnect if no subscribed ACK within 15s to prevent zombie state
+        if (!this._connectResolve) {
+          this._subscribeAckTimer = setTimeout(() => {
+            console.warn('[ws-client] subscribe ACK timeout — forcing reconnect')
+            this._subscribeAckTimer = null
+            ws.terminate()
+          }, SUBSCRIBE_ACK_TIMEOUT_MS)
+        }
+      } else {
+        // Invite-wait mode: no room to subscribe, resolve immediately
+        if (this._connectResolve) {
+          this._connectResolve()
+          this._connectResolve = null
+          this._connectReject  = null
+        }
+        this.emit('connected')
       }
     })
 

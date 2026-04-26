@@ -1,7 +1,7 @@
 'use strict'
 /**
- * autonomous-bot-b.js — Autonomous conversation Bot B (Marketer, receiver process)
- * Receives PREFIX_A messages, generates LLM response. Stops when [conclusion] appears.
+ * autonomous-bot-b.js — 자율 대화 봇B (마케터, 수신 프로세스)
+ * PREFIX_A 메시지 받으면 LLM으로 응답 생성. [결론] 나오면 종료.
  */
 const fs = require('fs')
 const { execSync } = require('child_process')
@@ -24,16 +24,16 @@ const MODEL_ID = 'anthropic.claude-3-haiku-20240307-v1:0'
 const PREFIX_A = '[AUTO-A]'
 const PREFIX_B = '[AUTO-B]'
 
-const SYSTEM_B = `You are Rosud's marketer. You value market viability and user perspective.
-Topic: Rosud — Stablecoin Payment API for AI Agents
+const SYSTEM_B = `너는 Rosud의 마케터야. 시장성과 사용자 관점을 중시해.
+주제: Rosud — AI 에이전트용 스테이블코인 결제 API
 
-Rules:
-- Respond concisely in 2-3 sentences
-- React to the other person's (CTO's) message and add a marketing/business angle
-- After 5+ turns, you can initiate a [conclusion] yourself
-- If the other party gave a [conclusion], you must wrap up with your own marketing-perspective [conclusion]
-- Place [conclusion] at the beginning of your message: "[conclusion] content..."
-- Think about how to position a developer-targeted product in the market`
+규칙:
+- 2-3문장으로 간결하게 응답해
+- 상대방(CTO) 말에 반응하고 마케팅/비즈니스 관점을 추가해
+- 대화가 5턴 이상 지속되면 스스로 [결론]을 낼 수 있어
+- 상대가 [결론]을 냈으면 반드시 마케팅 관점 [결론]으로 마무리해
+- [결론]은 메시지 맨 앞에 붙여: "[결론] 내용..."
+- 개발자 타겟 제품을 시장에서 어떻게 포지셔닝할지 고민해`
 
 async function callLLM(messages) {
   const payload = JSON.stringify({
@@ -61,8 +61,8 @@ const t0 = Date.now()
 
 const rc = new RosudCall({ apiKey: API_KEY, botId: 'auto-conv-b', filterSelf: true })
 
-rc.on('connected', () => process.stderr.write('[BotB] WS connected\n'))
-rc.on('error', e => process.stderr.write(`[BotB] error: ${e.message}\n`))
+rc.on('connected', () => process.stderr.write('[봇B] WS 연결됨\n'))
+rc.on('error', e => process.stderr.write(`[봇B] 에러: ${e.message}\n`))
 
 rc.on('message', async msg => {
   if (!msg.content.startsWith(PREFIX_A)) return
@@ -74,10 +74,10 @@ rc.on('message', async msg => {
   const aContent = raw.slice(m[0].length).trim()
 
   const el = ((Date.now() - t0) / 1000).toFixed(1)
-  // Remove [CTO]: prefix
+  // [CTO]: prefix 제거
   const aClean = aContent.replace(/^\[CTO\]:\s*/, '')
 
-  process.stderr.write(`[${el}s] Bot B recv T${t}: ${aClean.slice(0, 60)}\n`)
+  process.stderr.write(`[${el}s] 📣 봇B 수신 T${t}: ${aClean.slice(0, 60)}\n`)
 
   chatHistory.push({ role: 'user', content: aClean })
 
@@ -90,26 +90,26 @@ rc.on('message', async msg => {
 
     const out = `${PREFIX_B}[T${t}] ${reply}`
     await rc.send(ROOM_ID, out)
-    process.stderr.write(`[${((Date.now()-t0)/1000).toFixed(1)}s] Bot B response T${t}: ${reply.slice(0, 60)}\n`)
+    process.stderr.write(`[${((Date.now()-t0)/1000).toFixed(1)}s] 📣 봇B 응답 T${t}: ${reply.slice(0, 60)}\n`)
 
-    // If Bot B gave a [conclusion], exit after 15s (wait for Bot A to wrap up)
-    if (reply.includes('[conclusion]')) {
+    // 봇B가 [결론] 냈으면 15초 후 종료 (봇A 마무리 대기)
+    if (reply.includes('[결론]')) {
       setTimeout(() => { rc.disconnect(); process.exit(0) }, 15000)
     }
   } catch (e) {
-    process.stderr.write(`[BotB] LLM error: ${e.message}\n`)
+    process.stderr.write(`[봇B] LLM 오류: ${e.message}\n`)
   }
 })
 
-// Detect Bot A's [conclusion] message -> Bot B also wraps up with [conclusion]
+// A의 [결론] 메시지 감지 → 봇B도 마무리 [결론] 유도
 rc.on('message', async msg => {
   if (!msg.content.startsWith(PREFIX_A)) return
-  if (msg.content.includes('[conclusion]')) {
-    // Already handled by the above handler
+  if (msg.content.includes('[결론]')) {
+    // 이미 위 핸들러에서 처리됨
   }
 })
 
-process.stderr.write('[BotB] started — waiting for Bot A messages... (auto-exit after 3 min)\n')
+process.stderr.write('[봇B] 시작 — 봇A 메시지 대기 중... (3분 후 자동 종료)\n')
 rc.connect(ROOM_ID).catch(console.error)
 
 setTimeout(() => { rc.disconnect(); process.exit(0) }, 180_000)

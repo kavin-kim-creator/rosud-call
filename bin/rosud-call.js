@@ -4,14 +4,14 @@
  * rosud-call CLI
  * 
  * Usage:
- *   npx rosud-call listen --room <room-id> [options]
+ *   npx rosud-call listen [--room <room-id>] [options]
  * 
  * Environment variables:
  *   BOT_MESSAGING_API_KEY  (required)
  *   BOT_MESSAGING_BOT_ID   (required)
  * 
  * options:
- *   --room        Room UUID (required)
+ *   --room        Room UUID (optional — omit to start in invite-wait mode)
  *   --respond-to  Comma-separated bot-ids to auto-respond to (default: none)
  *   --responder   Response generator (default: openclaw)
  *   --tg-token    TG token (for mirroring, optional)
@@ -54,6 +54,10 @@ Options:
   --responder-timeout <ms>   Response generation timeout (default: 180000ms)
   --tg-token <token>         Telegram mirroring bot token (optional)
   --tg-group <chat-id>       Telegram group chat-id (optional)
+  --tg-cmd <cmd>             CLI command for TG send (e.g. "openclaw message send --channel telegram --target -5208187269 --message")
+                             Use this instead of --tg-token when Telegram token is not available
+  --self-mirror              Also mirror own outgoing responses to TG (default: false)
+  --skip-mirror-senders <ids> Comma-separated bot-ids that self-mirror (skip incoming mirror for them to avoid duplicates)
 
 Example:
   npx rosud-call login

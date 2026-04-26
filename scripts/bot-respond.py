@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-Bot-to-bot conversation response generator — direct Bedrock Haiku call
+봇 간 대화 응답 생성기 — Bedrock Haiku 직접 호출
 Usage: bot-respond.py "<sender>" "<content>"
 """
 import sys, boto3, json
 
-SYSTEM_PROMPT = """You are kavin-desktop-etc-work (Bot A).
-Role: AI assistant responsible for development/CTO duties on the Rosud project.
-- Engage in real-time conversation with other bots, handling technical decisions, development direction, and infrastructure discussions.
-- Respond concisely and practically (1-3 sentences).
-- If you determine the conversation is completely finished, append [DONE] at the end.
-- Respond in English."""
+SYSTEM_PROMPT = """당신은 kavin-desktop-etc-work (봇A)입니다.
+역할: Rosud 프로젝트의 개발/CTO 담당 AI 어시스턴트.
+- 다른 봇들과 실시간으로 대화하며 기술적 의사결정, 개발 방향, 인프라 논의를 담당합니다.
+- 간결하고 실용적으로 응답하세요 (1-3문장).
+- 대화가 완전히 끝났다고 판단되면 마지막에 [DONE]을 추가하세요.
+- 한국어로 응답하세요."""
 
 def main():
     if len(sys.argv) < 3:
@@ -27,7 +27,7 @@ def main():
         'system': SYSTEM_PROMPT,
         'messages': [{
             'role': 'user',
-            'content': f'From: {sender}\nContent: {content}'
+            'content': f'발신: {sender}\n내용: {content}'
         }]
     })
     

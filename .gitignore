@@ -1,28 +1,25 @@
 node_modules/
 dist/
 
-# Sensitive files
+# 민감 파일
 .secrets
 .env
 *.pem
 *.key
 credentials
 
-# Server code (Python FastAPI) — excluded from public repo
+# 서버 코드 (Python FastAPI) — public repo 제외
 app/
 Dockerfile
 requirements.txt
 
-# Internal development docs
+# 내부 개발 문서
 CLAUDE_PROMPT.md
 TASK.md
 DESIGN.md
 
-# Logs
+# 로그
 *.log
 /tmp/
-
-# Server code - managed in rosud-call-private only
-app/
-Dockerfile
+*.tgz
 requirements.txt

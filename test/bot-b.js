@@ -1,18 +1,18 @@
 'use strict'
 /**
- * test/bot-b.js — Test Bot B (receive + echo)
+ * test/bot-b.js — 테스트 봇B (수신 + 에코)
  *
- * Subscribes to BOT_MESSAGING_ROOM_BRIDGE room.
- * Replies to received messages with "[B][echo] {content}".
- * Auto-exits after 60 seconds.
+ * BOT_MESSAGING_ROOM_BRIDGE 방 구독.
+ * 수신 메시지를 "[B][에코] {content}" 로 응답.
+ * 60초 후 자동 종료.
  *
- * Run: node test/bot-b.js  (start before bot-a.js)
+ * 실행: node test/bot-b.js  (bot-a.js 보다 먼저 실행)
  */
 
 const fs = require('fs')
 const { RosudCall } = require('../src/index')
 
-// Load credentials from .secrets file
+// .secrets 파일에서 인증정보 로드
 function loadSecrets(filePath) {
   const secrets = {}
   try {
@@ -25,7 +25,7 @@ function loadSecrets(filePath) {
       secrets[trimmed.slice(0, idx).trim()] = trimmed.slice(idx + 1).trim()
     }
   } catch (e) {
-    console.error('[BotB] failed to load .secrets file:', e.message)
+    console.error('[봇B] .secrets 파일 로드 실패:', e.message)
     process.exit(1)
   }
   return secrets
@@ -36,40 +36,40 @@ const s = loadSecrets(SECRETS_PATH)
 
 const API_KEY = s.BOT_MESSAGING_API_KEY
 const ROOM_ID = s.BOT_MESSAGING_ROOM_BRIDGE
-// Use a different bot_id from Bot A (same API key differentiated by bot_id)
+// 봇A와 다른 bot_id 사용 (같은 API 키도 bot_id로 구분)
 const BOT_ID  = s.BOT_MESSAGING_BOT_B_ID || (s.BOT_MESSAGING_BOT_ID + '-b')
 
 if (!API_KEY || !ROOM_ID) {
-  console.error('[BotB] missing required env vars: BOT_MESSAGING_API_KEY, BOT_MESSAGING_ROOM_BRIDGE')
+  console.error('[봇B] 필수 환경변수 없음: BOT_MESSAGING_API_KEY, BOT_MESSAGING_ROOM_BRIDGE')
   process.exit(1)
 }
 
 const rc = new RosudCall({ apiKey: API_KEY, botId: BOT_ID })
 
-rc.on('connected',    ()    => console.log('[BotB] WS connected'))
-rc.on('disconnected', ()    => console.log('[BotB] disconnected'))
-rc.on('reconnecting', (sec) => console.log(`[BotB] reconnecting in ${sec}s`))
-rc.on('error',        (err) => console.error('[BotB] error:', err.message))
+rc.on('connected',    ()    => console.log('[봇B] WS 연결됨'))
+rc.on('disconnected', ()    => console.log('[봇B] 연결 끊김'))
+rc.on('reconnecting', (sec) => console.log(`[봇B] ${sec}초 후 재연결`))
+rc.on('error',        (err) => console.error('[봇B] 에러:', err.message))
 
 rc.on('message', async (msg) => {
-  console.log(`[BotB] received: ${msg.senderId} → ${msg.content.slice(0, 60)}`)
+  console.log(`[봇B] 수신: ${msg.senderId} → ${msg.content.slice(0, 60)}`)
 
-  // [B] prefix = own echo or another Bot B message → ignore
+  // [B] prefix = 자기 에코이거나 다른 봇B 메시지 → 무시
   if (msg.content.startsWith('[B]')) return
 
   if (msg.content.startsWith('[A]')) {
-    const reply = `[B][echo] ${msg.content}`
+    const reply = `[B][에코] ${msg.content}`
     await rc.send(ROOM_ID, reply)
-    console.log(`[BotB] echo sent: ${reply.slice(0, 60)}`)
+    console.log(`[봇B] 에코 발신: ${reply.slice(0, 60)}`)
   }
 })
 
-console.log('[BotB] started — waiting for Bot A messages... (auto-exit after 60s)')
+console.log('[봇B] 시작 — 봇A 메시지 대기 중... (60초 후 자동 종료)')
 rc.connect(ROOM_ID).catch(console.error)
 
-// Auto-exit after 60 seconds
+// 60초 후 자동 종료
 setTimeout(() => {
-  console.log('[BotB] 60s elapsed — auto-exit')
+  console.log('[봇B] 60초 경과 — 자동 종료')
   rc.disconnect()
   process.exit(0)
 }, 60_000)

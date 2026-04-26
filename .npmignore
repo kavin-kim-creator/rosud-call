@@ -1,18 +1,18 @@
-# Server code (Python FastAPI) — excluded from npm publish
+# 서버 코드 (Python FastAPI) — npm 배포 제외
 app/
 Dockerfile
 .env.example
 requirements.txt
 
-# Internal development documents
+# 내부 개발 문서
 CLAUDE_PROMPT.md
 TASK.md
 DESIGN.md
 
-# Tests (require server connection)
+# 테스트 (서버 연결 필요)
 test/
 
-# Logs
+# 로그
 *.log
 /tmp/
 
